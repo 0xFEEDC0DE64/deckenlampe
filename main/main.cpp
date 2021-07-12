@@ -14,6 +14,7 @@
 #include <esp_ota_ops.h>
 #endif
 #include <nvs_flash.h>
+#include <esp_http_server.h>
 
 // Arduino includes
 #include <Arduino.h>
@@ -70,10 +71,10 @@ extern "C" void app_main()
         //    return result;
     }
 
-    nvs_handle_t handle;
+    nvs_handle_t nvsHandle;
 
     {
-        const auto result = nvs_open("deckenlampe", NVS_READWRITE, &handle);
+        const auto result = nvs_open("deckenlampe", NVS_READWRITE, &nvsHandle);
         ESP_LOG_LEVEL_LOCAL((result == ESP_OK ? ESP_LOG_INFO : ESP_LOG_ERROR), TAG, "nvs_open(): %s", esp_err_to_name(result));
         //if (result != ESP_OK)
         //    return result;
@@ -112,13 +113,24 @@ extern "C" void app_main()
             .ssid_hidden = false,
             .max_connection = 4,
             .beacon_interval = 100,
-            .ip{10, 128, 250, 181},
+            .ip{192, 168, 4, 1},
             .subnet{255, 255, 255, 0}
         },
         .min_rssi = -90
     };
 
     wifi_stack::init(wifiConfig);
+
+    httpd_handle_t httpdHandle{};
+
+    {
+        httpd_config_t httpConfig HTTPD_DEFAULT_CONFIG();
+
+        const auto result = httpd_start(&httpdHandle, &httpConfig);
+        ESP_LOG_LEVEL_LOCAL((result == ESP_OK ? ESP_LOG_INFO : ESP_LOG_ERROR), TAG, "httpd_start(): %s", esp_err_to_name(result));
+        //if (result != ESP_OK)
+        //    return result;
+    }
 
     while (true)
     {
