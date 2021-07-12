@@ -1,0 +1,24 @@
+[submodule "esp-idf"]
+	path = esp-idf
+	url = git@github.com:0xFEEDC0DE64/esp-idf.git
+[submodule "components/cpputils"]
+	path = components/cpputils
+	url = git@github.com:0xFEEDC0DE64/cpputils.git
+[submodule "components/arduino-esp32"]
+	path = components/arduino-esp32
+	url = git@github.com:0xFEEDC0DE64/arduino-esp32.git
+[submodule "components/espchrono"]
+	path = components/espchrono
+	url = git@github.com:0xFEEDC0DE64/espchrono.git
+[submodule "components/espcpputils"]
+	path = components/espcpputils
+	url = git@github.com:0xFEEDC0DE64/espcpputils.git
+[submodule "components/expected"]
+	path = components/expected
+	url = git@github.com:0xFEEDC0DE64/expected.git
+[submodule "components/espwifistack"]
+	path = components/espwifistack
+	url = git@github.com:0xFEEDC0DE64/espwifistack.git
+[submodule "components/date"]
+	path = components/date
+	url = git@github.com:0xFEEDC0DE64/date.git
