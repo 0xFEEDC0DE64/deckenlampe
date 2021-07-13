@@ -21,6 +21,11 @@
 
 // Arduino includes
 #include <Arduino.h>
+#include <Wire.h>
+
+// 3rdparty lib includes
+#include <Adafruit_Sensor.h>
+#include <Adafruit_TSL2561_U.h>
 
 // local includes
 #include "espwifistack.h"
@@ -32,13 +37,33 @@ using namespace std::chrono_literals;
 namespace {
 constexpr const char * const TAG = "MAIN";
 
+constexpr const int pins_sda = 16;
+constexpr const int pins_scl = 17;
+
+constexpr const std::string_view topic_lamp_availability = "dahoam/wohnzimmer/deckenlicht1/available";
+constexpr const std::string_view topic_lamp_status = "dahoam/wohnzimmer/deckenlicht1/status";
+constexpr const std::string_view topic_lamp_set = "dahoam/wohnzimmer/deckenlicht1/set";
+
+constexpr const std::string_view topic_switch_availability = "dahoam/wohnzimmer/lichtschalter1/available";
+constexpr const std::string_view topic_switch_status = "dahoam/wohnzimmer/lichtschalter1/status";
+
+constexpr const std::string_view topic_lux_availability = "dahoam/wohnzimmer/lux1/available";
+constexpr const std::string_view topic_lux_value = "dahoam/wohnzimmer/lux1/value";
+
+std::atomic<bool> mqttConnected;
 espcpputils::mqtt_client mqttClient;
 
-std::atomic<bool> lightState;
+std::atomic<bool> lampState;
 std::atomic<bool> switchState;
 
-//espchrono::millis_clock::time_point lastLightToggle;
+//espchrono::millis_clock::time_point lastLampToggle;
 //espchrono::millis_clock::time_point lastSwitchToggle;
+
+Adafruit_TSL2561_Unified tsl{TSL2561_ADDR_FLOAT, 12345};
+
+bool tslInitialized;
+
+std::optional<float> lastTslValue;
 
 esp_err_t webserver_root_handler(httpd_req_t *req);
 esp_err_t webserver_on_handler(httpd_req_t *req);
@@ -47,6 +72,8 @@ esp_err_t webserver_toggle_handler(httpd_req_t *req);
 esp_err_t webserver_reboot_handler(httpd_req_t *req);
 
 void mqttEventHandler(void *event_handler_arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
+
+int mqttVerbosePub(std::string_view topic, std::string_view value, int qos, int retain);
 } // namespace
 
 extern "C" void app_main()
@@ -273,9 +300,101 @@ extern "C" void app_main()
         }
     }
 
+    {
+        ESP_LOGI(TAG, "calling Wire.begin()...");
+        const auto result = Wire.begin(pins_sda, pins_scl);
+        ESP_LOGI(TAG, "finished with %s", result ? "true" : "false");
+    }
+
+    {
+        ESP_LOGI(TAG, "calling tsl.begin()...");
+        tslInitialized = tsl.begin(true);
+        ESP_LOGI(TAG, "finished with %s", tslInitialized ? "true" : "false");
+
+        if (tslInitialized) {
+            sensor_t sensor = tsl.getSensor();
+            ESP_LOGI(TAG, "------------------------------------");
+            ESP_LOGI(TAG, "Sensor:       %s", sensor.name);
+            ESP_LOGI(TAG, "Driver Ver:   %i", sensor.version);
+            ESP_LOGI(TAG, "Unique ID:    %i", sensor.sensor_id);
+            ESP_LOGI(TAG, "Max Value:    %f lux", sensor.max_value);
+            ESP_LOGI(TAG, "Min Value:    %f lux", sensor.min_value);
+            ESP_LOGI(TAG, "Resolution:   %f lux", sensor.resolution);
+            ESP_LOGI(TAG, "------------------------------------");
+            ESP_LOGI(TAG, "");
+
+            /* You can also manually set the gain or enable auto-gain support */
+            // tsl.setGain(TSL2561_GAIN_1X);      /* No gain ... use in bright light to avoid sensor saturation */
+            // tsl.setGain(TSL2561_GAIN_16X);     /* 16x gain ... use in low light to boost sensitivity */
+            tsl.enableAutoRange(true);            /* Auto-gain ... switches automatically between 1x and 16x */
+
+            /* Changing the integration time gives you better sensor resolution (402ms = 16-bit data) */
+            tsl.setIntegrationTime(TSL2561_INTEGRATIONTIME_13MS);      /* fast but low resolution */
+            // tsl.setIntegrationTime(TSL2561_INTEGRATIONTIME_101MS);  /* medium resolution and speed   */
+            // tsl.setIntegrationTime(TSL2561_INTEGRATIONTIME_402MS);  /* 16-bit data but slowest conversions */
+
+            /* Update these values depending on what you've set above! */
+            ESP_LOGI(TAG, "------------------------------------");
+            ESP_LOGI(TAG, "Gain:         Auto");
+            ESP_LOGI(TAG, "Timing:       13 ms");
+            ESP_LOGI(TAG, "------------------------------------");
+        }
+    }
+
     while (true)
     {
         wifi_stack::update(wifiConfig);
+
+//        if (espchrono::ago(lastLampToggle) >= 10s)
+//        {
+//            lastLampToggle = espchrono::millis_clock::now();
+//            lampState = !lampState;
+
+//            if (mqttClient && mqttConnected)
+//                mqttVerbosePub(topic_lamp_status, lampState ? "ON" : "OFF", 0, 1);
+//        }
+
+//        if (espchrono::ago(lastSwitchToggle) >= 30s)
+//        {
+//            lastSwitchToggle = espchrono::millis_clock::now();
+//            switchState = !switchState;
+
+//            if (mqttClient && mqttConnected)
+//                mqttVerbosePub(topic_switch_status, switchState ? "ON" : "OFF", 0, 1);
+//        }
+
+        if (tslInitialized) {
+            if (std::optional<sensors_event_t> event = tsl.getEvent()) {
+                /* Display the results (light is measured in lux) */
+                if (event->light) {
+                    ESP_LOGW(TAG, "%f lux", event->light);
+
+                    if (mqttClient && mqttConnected) {
+                        if (!lastTslValue)
+                            mqttVerbosePub(topic_lux_availability, "online", 0, 1);
+                        if (!lastTslValue || *lastTslValue != event->light)
+                            mqttVerbosePub(topic_lux_value, std::to_string(event->light), 0, 1);
+                    }
+
+                    lastTslValue = event->light;
+                } else {
+                    /* If event.light = 0 lux the sensor is probably saturated
+                     * and no reliable data could be generated! */
+                    ESP_LOGD(TAG, "Sensor overload %f", event->light);
+                }
+            } else {
+                ESP_LOGW(TAG, "tsl failed");
+                if (lastTslValue) {
+                    if (mqttClient && mqttConnected)
+                        mqttVerbosePub(topic_lux_availability, "offline", 0, 1);
+                    lastTslValue = std::nullopt;
+                }
+            }
+        } else if (lastTslValue) {
+            if (mqttClient && mqttConnected)
+                mqttVerbosePub(topic_lux_availability, "offline", 0, 1);
+            lastTslValue = std::nullopt;
+        }
 
 #if defined(CONFIG_ESP_TASK_WDT_PANIC) || defined(CONFIG_ESP_TASK_WDT)
         if (const auto result = esp_task_wdt_reset(); result != ESP_OK)
@@ -291,39 +410,9 @@ extern "C" void app_main()
         }
 #endif
 
-//        if (espchrono::ago(lastLightToggle) >= 10s)
-//        {
-//            lastLightToggle = espchrono::millis_clock::now();
-//            lightState = !lightState;
-
-//            if (mqttClient)
-//            {
-//                std::string_view topic = "dahoam/wohnzimmer/deckenlicht1/status";
-//                std::string_view value = lightState ? "ON" : "OFF";
-
-//                ESP_LOGI(TAG, "sending %.*s = %.*s", topic.size(), topic.data(), value.size(), value.data());
-//                mqttClient.publish(topic, value, 0, 1);
-//            }
-//        }
-
-//        if (espchrono::ago(lastSwitchToggle) >= 30s)
-//        {
-//            lastSwitchToggle = espchrono::millis_clock::now();
-//            switchState = !switchState;
-
-//            if (mqttClient)
-//            {
-//                std::string_view topic = "dahoam/wohnzimmer/lichtschalter1/status";
-//                std::string_view value = switchState ? "ON" : "OFF";
-
-//                ESP_LOGI(TAG, "sending %.*s = %.*s", topic.size(), topic.data(), value.size(), value.data());
-//                mqttClient.publish(topic, value, 0, 1);
-//            }
-//        }
-
         vPortYield();
 
-        vTaskDelay(std::chrono::ceil<espcpputils::ticks>(100ms).count());
+        vTaskDelay(std::chrono::ceil<espcpputils::ticks>(2000ms).count());
     }
 }
 
@@ -346,11 +435,24 @@ extern "C" void app_main()
 namespace {
 esp_err_t webserver_root_handler(httpd_req_t *req)
 {
-    std::string_view body{"this is work in progress...<br/>\n"
-                          "<a href=\"/on\">on</a><br/>\n"
-                          "<a href=\"/off\">off</a><br/>\n"
-                          "<a href=\"/toggle\">toggle</a><br/>\n"
-                          "<a href=\"/reboot\">reboot</a>"};
+    std::string body = "this is work in progress...<br/>\n"
+                       "<a href=\"/on\">on</a><br/>\n"
+                       "<a href=\"/off\">off</a><br/>\n"
+                       "<a href=\"/toggle\">toggle</a><br/>\n"
+                       "<a href=\"/reboot\">reboot</a><br/>\n"
+                       "<br/>\n"
+                       "Lamp: ";
+    body += lampState ? "ON" : "OFF";
+    body += "<br/>\n"
+            "Switch: ";
+    body += switchState ? "ON" : "OFF";
+    body += "<br/>\n";
+    if (lastTslValue) {
+        body += "Brightness: ";
+        body += std::to_string(*lastTslValue);
+        body += " lux<br/>\n";
+    }
+
     CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
     CALL_AND_EXIT_ON_ERROR(httpd_resp_send, req, body.data(), body.size())
 
@@ -359,15 +461,10 @@ esp_err_t webserver_root_handler(httpd_req_t *req)
 
 esp_err_t webserver_on_handler(httpd_req_t *req)
 {
-    const bool state = (lightState = true);
+    const bool state = (lampState = true);
 
-    if (mqttClient) {
-        std::string_view topic = "dahoam/wohnzimmer/deckenlicht1/status";
-        std::string_view value = state ? "ON" : "OFF";
-
-        ESP_LOGI(TAG, "sending %.*s = %.*s", topic.size(), topic.data(), value.size(), value.data());
-        mqttClient.publish(topic, value, 0, 1);
-    }
+    if (mqttClient && mqttConnected)
+        mqttVerbosePub(topic_lamp_status, state ? "ON" : "OFF", 0, 1);
 
     std::string_view body{"ON called..."};
     CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
@@ -378,15 +475,10 @@ esp_err_t webserver_on_handler(httpd_req_t *req)
 
 esp_err_t webserver_off_handler(httpd_req_t *req)
 {
-    const bool state = (lightState = false);
+    const bool state = (lampState = false);
 
-    if (mqttClient) {
-        std::string_view topic = "dahoam/wohnzimmer/deckenlicht1/status";
-        std::string_view value = state ? "ON" : "OFF";
-
-        ESP_LOGI(TAG, "sending %.*s = %.*s", topic.size(), topic.data(), value.size(), value.data());
-        mqttClient.publish(topic, value, 0, 1);
-    }
+    if (mqttClient && mqttConnected)
+        mqttVerbosePub(topic_lamp_status, state ? "ON" : "OFF", 0, 1);
 
     std::string_view body{"OFF called..."};
     CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
@@ -397,16 +489,10 @@ esp_err_t webserver_off_handler(httpd_req_t *req)
 
 esp_err_t webserver_toggle_handler(httpd_req_t *req)
 {
-    const bool state = (lightState = !lightState);
+    const bool state = (lampState = !lampState);
 
-    if (mqttClient)
-    {
-        std::string_view topic = "dahoam/wohnzimmer/deckenlicht1/status";
-        std::string_view value = state ? "ON" : "OFF";
-
-        ESP_LOGI(TAG, "sending %.*s = %.*s", topic.size(), topic.data(), value.size(), value.data());
-        mqttClient.publish(topic, value, 0, 1);
-    }
+    if (mqttClient && mqttConnected)
+        mqttVerbosePub(topic_lamp_status, state ? "ON" : "OFF", 0, 1);
 
     std::string_view body{"TOGGLE called..."};
     CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
@@ -449,18 +535,30 @@ void mqttEventHandler(void *event_handler_arg, esp_event_base_t event_base, int3
     case MQTT_EVENT_CONNECTED:
         ESP_LOGI(TAG, "%s event_id=%s", event_base, "MQTT_EVENT_CONNECTED");
 
-        mqttClient.publish("dahoam/wohnzimmer/deckenlicht1/available", "online", 0, 0);
-        mqttClient.publish("dahoam/wohnzimmer/deckenlicht1/status", lightState.load() ? "ON" : "OFF", 0, 1);
+        mqttConnected = true;
 
-        mqttClient.publish("dahoam/wohnzimmer/lichtschalter1/available", "online", 0, 0);
-        mqttClient.publish("dahoam/wohnzimmer/lichtschalter1/status", switchState.load() ? "ON" : "OFF", 0, 1);
+        mqttVerbosePub(topic_lamp_availability, "online", 0, 1);
+        mqttVerbosePub(topic_lamp_status, lampState.load() ? "ON" : "OFF", 0, 1);
 
-        mqttClient.subscribe("dahoam/wohnzimmer/deckenlicht1/set", 0);
+        mqttVerbosePub(topic_switch_availability, "online", 0, 1);
+        mqttVerbosePub(topic_switch_status, switchState.load() ? "ON" : "OFF", 0, 1);
+
+        if (lastTslValue) {
+            mqttVerbosePub(topic_lux_availability, "online", 0, 1);
+            mqttVerbosePub(topic_lux_value, std::to_string(*lastTslValue).c_str(), 0, 1);
+        } else {
+            mqttVerbosePub(topic_lux_availability, "offline", 0, 1);
+        }
+
+        mqttClient.subscribe(topic_lamp_set, 0);
 
         break;
 
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "%s event_id=%s", event_base, "MQTT_EVENT_DISCONNECTED");
+
+        mqttConnected = false;
+
         break;
 
     case MQTT_EVENT_SUBSCRIBED:
@@ -481,17 +579,11 @@ void mqttEventHandler(void *event_handler_arg, esp_event_base_t event_base, int3
 
         ESP_LOGI(TAG, "%s event_id=%s topic=%.*s data=%.*s", event_base, "MQTT_EVENT_DATA", topic.size(), topic.data(), value.size(), value.data());
 
-        if (topic == "dahoam/wohnzimmer/deckenlicht1/set")
+        if (topic == topic_lamp_set)
         {
-            lightState = value == "ON";
-            if (mqttClient)
-            {
-                topic = "dahoam/wohnzimmer/deckenlicht1/status";
-                value = lightState ? "ON" : "OFF";
-
-                ESP_LOGI(TAG, "sending %.*s = %.*s", topic.size(), topic.data(), value.size(), value.data());
-                mqttClient.publish(topic, value, 0, 1);
-            }
+            lampState = value == "ON";
+            if (mqttClient && mqttConnected)
+                mqttVerbosePub(topic_lamp_status, lampState ? "ON" : "OFF", 0, 1);
         }
 
         break;
@@ -508,5 +600,11 @@ void mqttEventHandler(void *event_handler_arg, esp_event_base_t event_base, int3
         ESP_LOGW(TAG, "%s unknown event_id %i", event_base, event_id);
         break;
     }
+}
+
+int mqttVerbosePub(std::string_view topic, std::string_view value, int qos, int retain)
+{
+    ESP_LOGI(TAG, "topic=\"%.*s\" value=\"%.*s\"", topic.size(), topic.data(), value.size(), value.data());
+    return mqttClient.publish(topic, value, qos, retain);
 }
 } // namespace

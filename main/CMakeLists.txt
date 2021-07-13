@@ -10,7 +10,8 @@ set(sources
 
 set(dependencies
     freertos nvs_flash esp_http_server esp_https_ota mdns app_update esp_system mqtt
-    arduino-esp32 cpputils espchrono espcpputils espwifistack expected
+    arduino-esp32 cpputils date espchrono espcpputils espwifistack expected fmt
+    Adafruit_Sensor Adafruit_TSL2561
 )
 
 idf_component_register(

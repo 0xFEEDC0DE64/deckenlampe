@@ -22,3 +22,12 @@
 [submodule "components/date"]
 	path = components/date
 	url = git@github.com:0xFEEDC0DE64/date.git
+[submodule "components/fmt"]
+	path = components/fmt
+	url = git@github.com:0xFEEDC0DE64/fmt.git
+[submodule "components/Adafruit_Sensor"]
+	path = components/Adafruit_Sensor
+	url = git@github.com:0xFEEDC0DE64/Adafruit_Sensor.git
+[submodule "components/Adafruit_TSL2561"]
+	path = components/Adafruit_TSL2561
+	url = git@github.com:0xFEEDC0DE64/Adafruit_TSL2561.git
