@@ -34,3 +34,6 @@
 [submodule "components/Adafruit_BMP085_Unified"]
 	path = components/Adafruit_BMP085_Unified
 	url = git@github.com:0xFEEDC0DE64/Adafruit_BMP085_Unified.git
+[submodule "components/DHT-sensor-library"]
+	path = components/DHT-sensor-library
+	url = git@github.com:0xFEEDC0DE64/DHT-sensor-library.git

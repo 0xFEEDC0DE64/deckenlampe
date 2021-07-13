@@ -18,6 +18,7 @@
 #include <esp_http_server.h>
 #include <mdns.h>
 #include <esp_system.h>
+#include <hal/gpio_types.h>
 
 // Arduino includes
 #include <Arduino.h>
@@ -27,6 +28,7 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_TSL2561_U.h>
 #include <Adafruit_BMP085_U.h>
+#include <DHT_U.h>
 #include <fmt/core.h>
 
 // local includes
@@ -39,8 +41,9 @@ using namespace std::chrono_literals;
 namespace {
 constexpr const char * const TAG = "MAIN";
 
-constexpr const int pins_sda = 16;
-constexpr const int pins_scl = 17;
+constexpr const gpio_num_t pins_sda = GPIO_NUM_16;
+constexpr const gpio_num_t pins_scl = GPIO_NUM_17;
+constexpr const gpio_num_t pins_dht = GPIO_NUM_33;
 
 constexpr const std::string_view topic_lamp_availability = "dahoam/wohnzimmer/deckenlicht1/available";
 constexpr const std::string_view topic_lamp_status = "dahoam/wohnzimmer/deckenlicht1/status";
@@ -57,6 +60,10 @@ constexpr const std::string_view topic_bmp085_pressure = "dahoam/wohnzimmer/bmp0
 constexpr const std::string_view topic_bmp085_temperature = "dahoam/wohnzimmer/bmp085_1/temperature";
 constexpr const std::string_view topic_bmp085_altitude = "dahoam/wohnzimmer/bmp085_1/altitude";
 
+constexpr const std::string_view topic_dht11_availability = "dahoam/wohnzimmer/dht11_1/available";
+constexpr const std::string_view topic_dht11_temperature = "dahoam/wohnzimmer/dht11_1/temperature";
+constexpr const std::string_view topic_dht11_humidity = "dahoam/wohnzimmer/dht11_1/humidity";
+
 std::atomic<bool> mqttConnected;
 espcpputils::mqtt_client mqttClient;
 
@@ -68,6 +75,7 @@ std::atomic<bool> switchState;
 
 Adafruit_TSL2561_Unified tsl{TSL2561_ADDR_FLOAT, 12345};
 Adafruit_BMP085_Unified bmp{10085};
+DHT_Unified dht(pins_dht, DHT11);
 
 bool tslInitialized{};
 bool bmpInitialized{};
@@ -75,6 +83,8 @@ bool bmpInitialized{};
 std::optional<float> lastTslValue;
 struct BmpValue { float pressure; float temperature; float altitude; };
 std::optional<BmpValue> lastBmpValue;
+struct DhtValue { float temperature; float humidity; };
+std::optional<DhtValue> lastDhtValue;
 
 esp_err_t webserver_root_handler(httpd_req_t *req);
 esp_err_t webserver_on_handler(httpd_req_t *req);
@@ -195,7 +205,8 @@ extern "C" void app_main()
             .uri = "/",
             .method = HTTP_GET,
             .handler = webserver_root_handler,
-            .user_ctx = NULL};
+            .user_ctx = NULL
+        };
 
         const auto result = httpd_register_uri_handler(httpdHandle, &uri);
         ESP_LOG_LEVEL_LOCAL((result == ESP_OK ? ESP_LOG_INFO : ESP_LOG_ERROR), TAG, "httpd_register_uri_handler() for %s: %s", "/", esp_err_to_name(result));
@@ -208,7 +219,8 @@ extern "C" void app_main()
             .uri = "/on",
             .method = HTTP_GET,
             .handler = webserver_on_handler,
-            .user_ctx = NULL};
+            .user_ctx = NULL
+        };
 
         const auto result = httpd_register_uri_handler(httpdHandle, &uri);
         ESP_LOG_LEVEL_LOCAL((result == ESP_OK ? ESP_LOG_INFO : ESP_LOG_ERROR), TAG, "httpd_register_uri_handler() for %s: %s", "/on", esp_err_to_name(result));
@@ -221,7 +233,8 @@ extern "C" void app_main()
             .uri = "/off",
             .method = HTTP_GET,
             .handler = webserver_off_handler,
-            .user_ctx = NULL};
+            .user_ctx = NULL
+        };
 
         const auto result = httpd_register_uri_handler(httpdHandle, &uri);
         ESP_LOG_LEVEL_LOCAL((result == ESP_OK ? ESP_LOG_INFO : ESP_LOG_ERROR), TAG, "httpd_register_uri_handler() for %s: %s", "/off", esp_err_to_name(result));
@@ -234,7 +247,8 @@ extern "C" void app_main()
             .uri = "/toggle",
             .method = HTTP_GET,
             .handler = webserver_toggle_handler,
-            .user_ctx = NULL};
+            .user_ctx = NULL
+        };
 
         const auto result = httpd_register_uri_handler(httpdHandle, &uri);
         ESP_LOG_LEVEL_LOCAL((result == ESP_OK ? ESP_LOG_INFO : ESP_LOG_ERROR), TAG, "httpd_register_uri_handler() for %s: %s", "/toggle", esp_err_to_name(result));
@@ -247,7 +261,8 @@ extern "C" void app_main()
             .uri = "/reboot",
             .method = HTTP_GET,
             .handler = webserver_reboot_handler,
-            .user_ctx = NULL};
+            .user_ctx = NULL
+        };
 
         const auto result = httpd_register_uri_handler(httpdHandle, &uri);
         ESP_LOG_LEVEL_LOCAL((result == ESP_OK ? ESP_LOG_INFO : ESP_LOG_ERROR), TAG, "httpd_register_uri_handler() for %s: %s", "/reboot", esp_err_to_name(result));
@@ -322,7 +337,8 @@ extern "C" void app_main()
         tslInitialized = tsl.begin(true);
         ESP_LOGI(TAG, "finished with %s", tslInitialized ? "true" : "false");
 
-        if (tslInitialized) {
+        if (tslInitialized)
+        {
             sensor_t sensor = tsl.getSensor();
             ESP_LOGI(TAG, "------------------------------------");
             ESP_LOGI(TAG, "Sensor:       %s", sensor.name);
@@ -357,7 +373,8 @@ extern "C" void app_main()
         bmpInitialized = bmp.begin();
         ESP_LOGI(TAG, "finished with %s", bmpInitialized ? "true" : "false");
 
-        if (bmpInitialized) {
+        if (bmpInitialized)
+        {
             sensor_t sensor = bmp.getSensor();
             ESP_LOGI(TAG, "------------------------------------");
             ESP_LOGI(TAG, "Sensor:       %s", sensor.name);
@@ -366,6 +383,40 @@ extern "C" void app_main()
             ESP_LOGI(TAG, "Max Value:    %.1f hPa", sensor.max_value);
             ESP_LOGI(TAG, "Min Value:    %.1f hPa", sensor.min_value);
             ESP_LOGI(TAG, "Resolution:   %.1f hPa", sensor.resolution);
+            ESP_LOGI(TAG, "------------------------------------");
+            ESP_LOGI(TAG, "");
+        }
+    }
+
+    {
+        ESP_LOGI(TAG, "calling dht.begin()...");
+        dht.begin();
+        ESP_LOGI(TAG, "finished");
+
+        {
+            sensor_t sensor = dht.temperature().getSensor();
+            ESP_LOGI(TAG, "------------------------------------");
+            ESP_LOGI(TAG, "Temperature Sensor");
+            ESP_LOGI(TAG, "Sensor:       %s", sensor.name);
+            ESP_LOGI(TAG, "Driver Ver:   %i", sensor.version);
+            ESP_LOGI(TAG, "Unique ID:    %i", sensor.sensor_id);
+            ESP_LOGI(TAG, "Max Value:    %.1f C", sensor.max_value);
+            ESP_LOGI(TAG, "Min Value:    %.1f C", sensor.min_value);
+            ESP_LOGI(TAG, "Resolution:   %.1f C", sensor.resolution);
+            ESP_LOGI(TAG, "------------------------------------");
+            ESP_LOGI(TAG, "");
+        }
+
+        {
+            sensor_t sensor = dht.humidity().getSensor();
+            ESP_LOGI(TAG, "------------------------------------");
+            ESP_LOGI(TAG, "Humidity Sensor");
+            ESP_LOGI(TAG, "Sensor:       %s", sensor.name);
+            ESP_LOGI(TAG, "Driver Ver:   %i", sensor.version);
+            ESP_LOGI(TAG, "Unique ID:    %i", sensor.sensor_id);
+            ESP_LOGI(TAG, "Max Value:    %.1f %%", sensor.max_value);
+            ESP_LOGI(TAG, "Min Value:    %.1f %%", sensor.min_value);
+            ESP_LOGI(TAG, "Resolution:   %.1f %%", sensor.resolution);
             ESP_LOGI(TAG, "------------------------------------");
             ESP_LOGI(TAG, "");
         }
@@ -393,14 +444,18 @@ extern "C" void app_main()
 //                mqttVerbosePub(topic_switch_status, switchState ? "ON" : "OFF", 0, 1);
 //        }
 
-        if (tslInitialized) {
-            if (std::optional<sensors_event_t> event = tsl.getEvent()) {
+        if (tslInitialized)
+        {
+            if (std::optional<sensors_event_t> event = tsl.getEvent())
+            {
                 /* Display the results (light is measured in lux) */
-                if (event->light) {
+                if (event->light)
+                {
                     const float tslValue = event->light;
                     ESP_LOGI(TAG, "read tsl: %.1f lux", tslValue);
 
-                    if (mqttClient && mqttConnected) {
+                    if (mqttClient && mqttConnected)
+                    {
                         if (!lastTslValue)
                             mqttVerbosePub(topic_lux_availability, "online", 0, 1);
                         if (!lastTslValue || fmt::format("{:.1f}", *lastTslValue) != fmt::format("{:.1f}", tslValue))
@@ -408,27 +463,37 @@ extern "C" void app_main()
                     }
 
                     lastTslValue = tslValue;
-                } else {
+                }
+                else
+                {
                     /* If event.light = 0 lux the sensor is probably saturated
                      * and no reliable data could be generated! */
                     ESP_LOGD(TAG, "tsl sensor overload %f", event->light);
                 }
-            } else {
+            }
+            else
+            {
                 ESP_LOGW(TAG, "tsl failed");
                 goto tslOffline;
             }
-        } else {
+        }
+        else
+        {
             tslOffline:
-            if (lastTslValue) {
+            if (lastTslValue)
+            {
                 if (mqttClient && mqttConnected)
                     mqttVerbosePub(topic_lux_availability, "offline", 0, 1);
                 lastTslValue = std::nullopt;
             }
         }
 
-        if (bmpInitialized) {
-            if (std::optional<sensors_event_t> event = bmp.getEvent()) {
-                if (event->pressure) {
+        if (bmpInitialized)
+        {
+            if (std::optional<sensors_event_t> event = bmp.getEvent())
+            {
+                if (event->pressure)
+                {
                     BmpValue bmpValue { .pressure = event->pressure };
                     ESP_LOGI(TAG, "read bmp Pressure: %.1f hPa", bmpValue.pressure);
 
@@ -441,7 +506,8 @@ extern "C" void app_main()
                     bmpValue.altitude = bmp.pressureToAltitude(seaLevelPressure, event->pressure);
                     ESP_LOGI(TAG, "read bmp Altitude: %.1f m", bmpValue.altitude);
 
-                    if (mqttClient && mqttConnected) {
+                    if (mqttClient && mqttConnected)
+                    {
                         if (!lastBmpValue)
                             mqttVerbosePub(topic_bmp085_availability, "online", 0, 1);
                         if (!lastBmpValue || fmt::format("{:.1f}", lastBmpValue->pressure) != fmt::format("{:.1f}", bmpValue.pressure))
@@ -453,20 +519,65 @@ extern "C" void app_main()
                     }
 
                     lastBmpValue = bmpValue;
-                } else {
+                }
+                else
+                {
                     ESP_LOGW(TAG, "bmp sensor error");
                     goto bmpOffline;
                 }
-            } else {
+            }
+            else
+            {
                 ESP_LOGW(TAG, "bmp failed");
                 goto bmpOffline;
             }
-        } else {
+        }
+        else
+        {
             bmpOffline:
-            if (lastBmpValue) {
+            if (lastBmpValue)
+            {
                 if (mqttClient && mqttConnected)
                     mqttVerbosePub(topic_bmp085_availability, "offline", 0, 1);
                 lastBmpValue = std::nullopt;
+            }
+        }
+
+        {
+            std::optional<sensors_event_t> temperatureEvent = dht.temperature().getEvent();
+            std::optional<sensors_event_t> humidityEvent = dht.humidity().getEvent();
+
+            if (temperatureEvent && humidityEvent)
+            {
+                DhtValue dhtValue {
+                    .temperature = temperatureEvent->temperature,
+                    .humidity = humidityEvent->relative_humidity
+                };
+
+                ESP_LOGI(TAG, "read dht temperature: %.1f C", dhtValue.temperature);
+                ESP_LOGI(TAG, "read dht humidity: %.1f %%", dhtValue.humidity);
+
+                if (mqttClient && mqttConnected)
+                {
+                    if (!lastDhtValue)
+                        mqttVerbosePub(topic_dht11_availability, "online", 0, 1);
+                    if (!lastDhtValue || fmt::format("{:.1f}", lastDhtValue->temperature) != fmt::format("{:.1f}", dhtValue.temperature))
+                        mqttVerbosePub(topic_dht11_temperature, fmt::format("{:.1f}", dhtValue.temperature), 0, 1);
+                    if (!lastDhtValue || fmt::format("{:.1f}", lastDhtValue->humidity) != fmt::format("{:.1f}", dhtValue.humidity))
+                        mqttVerbosePub(topic_dht11_humidity, fmt::format("{:.1f}", dhtValue.humidity), 0, 1);
+                }
+
+                lastDhtValue = dhtValue;
+            }
+            else
+            {
+                ESP_LOGW(TAG, "dht temperature or humidity failed");
+                if (lastDhtValue)
+                {
+                    if (mqttClient && mqttConnected)
+                        mqttVerbosePub(topic_dht11_availability, "offline", 0, 1);
+                    lastDhtValue = std::nullopt;
+                }
             }
         }
 
@@ -515,15 +626,24 @@ esp_err_t webserver_root_handler(httpd_req_t *req)
                        "<a href=\"/toggle\">toggle</a><br/>\n"
                        "<a href=\"/reboot\">reboot</a><br/>\n"
                        "<br/>\n";
+
     body += fmt::format("Lamp: {}<br/>\n", lampState ? "ON" : "OFF");
     body += fmt::format("Switch: {}<br/>\n", switchState ? "ON" : "OFF");
-    if (lastTslValue) {
+
+    if (lastTslValue)
         body += fmt::format("Brightness: {:.1f} lux<br/>\n", *lastTslValue);
-    }
-    if (lastBmpValue) {
+
+    if (lastBmpValue)
+    {
         body += fmt::format("BMP085 Pressure: {:.1f} lux<br/>\n", lastBmpValue->pressure);
         body += fmt::format("BMP085 Temperature: {:.1f} C<br/>\n", lastBmpValue->temperature);
         body += fmt::format("BMP085 Altitude: {:.1f} m<br/>\n", lastBmpValue->altitude);
+    }
+
+    if (lastDhtValue)
+    {
+        body += fmt::format("DHT11 Temperature: {:.1f} C<br/>\n", lastDhtValue->temperature);
+        body += fmt::format("DHT11 Humidity: {:.1f} %<br/>\n", lastDhtValue->humidity);
     }
 
     CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
@@ -591,12 +711,14 @@ void mqttEventHandler(void *event_handler_arg, esp_event_base_t event_base, int3
 
     const esp_mqtt_event_t *data = reinterpret_cast<const esp_mqtt_event_t *>(event_data);
 
-    switch (esp_mqtt_event_id_t(event_id)) {
+    switch (esp_mqtt_event_id_t(event_id))
+    {
     case MQTT_EVENT_ERROR:
         ESP_LOGE(TAG, "%s event_id=%s", event_base, "MQTT_EVENT_ERROR");
 
         //        ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
-        //        if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
+        //        if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT)
+        //        {
         //            log_error_if_nonzero("reported from esp-tls", event->error_handle->esp_tls_last_esp_err);
         //            log_error_if_nonzero("reported from tls stack", event->error_handle->esp_tls_stack_err);
         //            log_error_if_nonzero("captured as transport's socket errno",  event->error_handle->esp_transport_sock_errno);
@@ -621,10 +743,18 @@ void mqttEventHandler(void *event_handler_arg, esp_event_base_t event_base, int3
             mqttVerbosePub(topic_lux_value, fmt::format("{:.1f}", *lastTslValue), 0, 1);
 
         mqttVerbosePub(topic_bmp085_availability, lastBmpValue ? "online" : "offline", 0, 1);
-        if (lastBmpValue) {
+        if (lastBmpValue)
+        {
             mqttVerbosePub(topic_bmp085_pressure, fmt::format("{:.1f}", lastBmpValue->pressure), 0, 1);
             mqttVerbosePub(topic_bmp085_temperature, fmt::format("{:.1f}", lastBmpValue->temperature), 0, 1);
             mqttVerbosePub(topic_bmp085_altitude, fmt::format("{:.1f}", lastBmpValue->altitude), 0, 1);
+        }
+
+        mqttVerbosePub(topic_dht11_availability, lastDhtValue ? "online" : "offline", 0, 1);
+        if (lastDhtValue)
+        {
+            mqttVerbosePub(topic_dht11_temperature, fmt::format("{:.1f}", lastDhtValue->temperature), 0, 1);
+            mqttVerbosePub(topic_dht11_humidity, fmt::format("{:.1f}", lastDhtValue->humidity), 0, 1);
         }
 
         mqttClient.subscribe(topic_lamp_set, 0);
@@ -650,7 +780,8 @@ void mqttEventHandler(void *event_handler_arg, esp_event_base_t event_base, int3
         ESP_LOGI(TAG, "%s event_id=%s", event_base, "MQTT_EVENT_PUBLISHED");
         break;
 
-    case MQTT_EVENT_DATA: {
+    case MQTT_EVENT_DATA:
+    {
         std::string_view topic{data->topic, (size_t)data->topic_len};
         std::string_view value{data->data, (size_t)data->data_len};
 
@@ -685,3 +816,8 @@ int mqttVerbosePub(std::string_view topic, std::string_view value, int qos, int 
     return mqttClient.publish(topic, value, qos, retain);
 }
 } // namespace
+
+auto espchrono::local_clock::timezone() noexcept -> time_zone
+{
+    return time_zone{1h, DayLightSavingMode::EuropeanSummerTime};
+}
