@@ -2,6 +2,7 @@
 
 // system includes
 #include <chrono>
+#include <atomic>
 
 // esp-idf includes
 #include <esp_log.h>
@@ -16,6 +17,7 @@
 #include <nvs_flash.h>
 #include <esp_http_server.h>
 #include <mdns.h>
+#include <esp_system.h>
 
 // Arduino includes
 #include <Arduino.h>
@@ -32,13 +34,17 @@ constexpr const char * const TAG = "MAIN";
 
 espcpputils::mqtt_client mqttClient;
 
-bool lightState{};
-bool switchState{};
+std::atomic<bool> lightState;
+std::atomic<bool> switchState;
 
 //espchrono::millis_clock::time_point lastLightToggle;
 //espchrono::millis_clock::time_point lastSwitchToggle;
 
-esp_err_t webserver_handler(httpd_req_t *req);
+esp_err_t webserver_root_handler(httpd_req_t *req);
+esp_err_t webserver_on_handler(httpd_req_t *req);
+esp_err_t webserver_off_handler(httpd_req_t *req);
+esp_err_t webserver_toggle_handler(httpd_req_t *req);
+esp_err_t webserver_reboot_handler(httpd_req_t *req);
 
 void mqttEventHandler(void *event_handler_arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
 } // namespace
@@ -150,12 +156,63 @@ extern "C" void app_main()
         httpd_uri_t uri {
             .uri = "/",
             .method = HTTP_GET,
-            .handler = webserver_handler,
-            .user_ctx = NULL
-        };
+            .handler = webserver_root_handler,
+            .user_ctx = NULL};
 
         const auto result = httpd_register_uri_handler(httpdHandle, &uri);
-        ESP_LOG_LEVEL_LOCAL((result == ESP_OK ? ESP_LOG_INFO : ESP_LOG_ERROR), TAG, "httpd_register_uri_handler(): %s", esp_err_to_name(result));
+        ESP_LOG_LEVEL_LOCAL((result == ESP_OK ? ESP_LOG_INFO : ESP_LOG_ERROR), TAG, "httpd_register_uri_handler() for %s: %s", "/", esp_err_to_name(result));
+        //if (result != ESP_OK)
+        //    return result;
+    }
+
+    {
+        httpd_uri_t uri {
+            .uri = "/on",
+            .method = HTTP_GET,
+            .handler = webserver_on_handler,
+            .user_ctx = NULL};
+
+        const auto result = httpd_register_uri_handler(httpdHandle, &uri);
+        ESP_LOG_LEVEL_LOCAL((result == ESP_OK ? ESP_LOG_INFO : ESP_LOG_ERROR), TAG, "httpd_register_uri_handler() for %s: %s", "/on", esp_err_to_name(result));
+        //if (result != ESP_OK)
+        //    return result;
+    }
+
+    {
+        httpd_uri_t uri {
+            .uri = "/off",
+            .method = HTTP_GET,
+            .handler = webserver_off_handler,
+            .user_ctx = NULL};
+
+        const auto result = httpd_register_uri_handler(httpdHandle, &uri);
+        ESP_LOG_LEVEL_LOCAL((result == ESP_OK ? ESP_LOG_INFO : ESP_LOG_ERROR), TAG, "httpd_register_uri_handler() for %s: %s", "/off", esp_err_to_name(result));
+        //if (result != ESP_OK)
+        //    return result;
+    }
+
+    {
+        httpd_uri_t uri {
+            .uri = "/toggle",
+            .method = HTTP_GET,
+            .handler = webserver_toggle_handler,
+            .user_ctx = NULL};
+
+        const auto result = httpd_register_uri_handler(httpdHandle, &uri);
+        ESP_LOG_LEVEL_LOCAL((result == ESP_OK ? ESP_LOG_INFO : ESP_LOG_ERROR), TAG, "httpd_register_uri_handler() for %s: %s", "/toggle", esp_err_to_name(result));
+        //if (result != ESP_OK)
+        //    return result;
+    }
+
+    {
+        httpd_uri_t uri {
+            .uri = "/reboot",
+            .method = HTTP_GET,
+            .handler = webserver_reboot_handler,
+            .user_ctx = NULL};
+
+        const auto result = httpd_register_uri_handler(httpdHandle, &uri);
+        ESP_LOG_LEVEL_LOCAL((result == ESP_OK ? ESP_LOG_INFO : ESP_LOG_ERROR), TAG, "httpd_register_uri_handler() for %s: %s", "/reboot", esp_err_to_name(result));
         //if (result != ESP_OK)
         //    return result;
     }
@@ -287,11 +344,84 @@ extern "C" void app_main()
         return result;
 
 namespace {
-esp_err_t webserver_handler(httpd_req_t *req)
+esp_err_t webserver_root_handler(httpd_req_t *req)
 {
-    std::string_view body{"this is work in progress..."};
+    std::string_view body{"this is work in progress...<br/>\n"
+                          "<a href=\"/on\">on</a><br/>\n"
+                          "<a href=\"/off\">off</a><br/>\n"
+                          "<a href=\"/toggle\">toggle</a><br/>\n"
+                          "<a href=\"/reboot\">reboot</a>"};
     CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
     CALL_AND_EXIT_ON_ERROR(httpd_resp_send, req, body.data(), body.size())
+
+    return ESP_OK;
+}
+
+esp_err_t webserver_on_handler(httpd_req_t *req)
+{
+    const bool state = (lightState = true);
+
+    if (mqttClient) {
+        std::string_view topic = "dahoam/wohnzimmer/deckenlicht1/status";
+        std::string_view value = state ? "ON" : "OFF";
+
+        ESP_LOGI(TAG, "sending %.*s = %.*s", topic.size(), topic.data(), value.size(), value.data());
+        mqttClient.publish(topic, value, 0, 1);
+    }
+
+    std::string_view body{"ON called..."};
+    CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
+    CALL_AND_EXIT_ON_ERROR(httpd_resp_send, req, body.data(), body.size())
+
+    return ESP_OK;
+}
+
+esp_err_t webserver_off_handler(httpd_req_t *req)
+{
+    const bool state = (lightState = false);
+
+    if (mqttClient) {
+        std::string_view topic = "dahoam/wohnzimmer/deckenlicht1/status";
+        std::string_view value = state ? "ON" : "OFF";
+
+        ESP_LOGI(TAG, "sending %.*s = %.*s", topic.size(), topic.data(), value.size(), value.data());
+        mqttClient.publish(topic, value, 0, 1);
+    }
+
+    std::string_view body{"OFF called..."};
+    CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
+    CALL_AND_EXIT_ON_ERROR(httpd_resp_send, req, body.data(), body.size())
+
+    return ESP_OK;
+}
+
+esp_err_t webserver_toggle_handler(httpd_req_t *req)
+{
+    const bool state = (lightState = !lightState);
+
+    if (mqttClient)
+    {
+        std::string_view topic = "dahoam/wohnzimmer/deckenlicht1/status";
+        std::string_view value = state ? "ON" : "OFF";
+
+        ESP_LOGI(TAG, "sending %.*s = %.*s", topic.size(), topic.data(), value.size(), value.data());
+        mqttClient.publish(topic, value, 0, 1);
+    }
+
+    std::string_view body{"TOGGLE called..."};
+    CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
+    CALL_AND_EXIT_ON_ERROR(httpd_resp_send, req, body.data(), body.size())
+
+    return ESP_OK;
+}
+
+esp_err_t webserver_reboot_handler(httpd_req_t *req)
+{
+    std::string_view body{"REBOOT called..."};
+    CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
+    CALL_AND_EXIT_ON_ERROR(httpd_resp_send, req, body.data(), body.size())
+
+    esp_restart();
 
     return ESP_OK;
 }
@@ -320,10 +450,10 @@ void mqttEventHandler(void *event_handler_arg, esp_event_base_t event_base, int3
         ESP_LOGI(TAG, "%s event_id=%s", event_base, "MQTT_EVENT_CONNECTED");
 
         mqttClient.publish("dahoam/wohnzimmer/deckenlicht1/available", "online", 0, 0);
-        mqttClient.publish("dahoam/wohnzimmer/deckenlicht1/status", lightState ? "ON" : "OFF", 0, 1);
+        mqttClient.publish("dahoam/wohnzimmer/deckenlicht1/status", lightState.load() ? "ON" : "OFF", 0, 1);
 
         mqttClient.publish("dahoam/wohnzimmer/lichtschalter1/available", "online", 0, 0);
-        mqttClient.publish("dahoam/wohnzimmer/lichtschalter1/status", switchState ? "ON" : "OFF", 0, 1);
+        mqttClient.publish("dahoam/wohnzimmer/lichtschalter1/status", switchState.load() ? "ON" : "OFF", 0, 1);
 
         mqttClient.subscribe("dahoam/wohnzimmer/deckenlicht1/set", 0);
 
