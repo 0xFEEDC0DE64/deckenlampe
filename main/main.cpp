@@ -25,10 +25,9 @@
 #include <Wire.h>
 
 // 3rdparty lib includes
-#include <Adafruit_Sensor.h>
 #include <Adafruit_TSL2561_U.h>
 #include <Adafruit_BMP085_U.h>
-#include <DHT_U.h>
+#include <DHT.h>
 #include <fmt/core.h>
 
 // local includes
@@ -51,8 +50,8 @@ constexpr const std::string_view topic_lamp_availability = "dahoam/wohnzimmer/de
 constexpr const std::string_view topic_lamp_status = "dahoam/wohnzimmer/deckenlicht1/status";
 constexpr const std::string_view topic_lamp_set = "dahoam/wohnzimmer/deckenlicht1/set";
 
-constexpr const std::string_view topic_switch_availability = "dahoam/wohnzimmer/lichtschalter1/available";
-constexpr const std::string_view topic_switch_status = "dahoam/wohnzimmer/lichtschalter1/status";
+constexpr const std::string_view topic_switch_availability = "dahoam/wohnzimmer/schalter1/available";
+constexpr const std::string_view topic_switch_status = "dahoam/wohnzimmer/schalter1/status";
 
 constexpr const std::string_view topic_tsl2561_availability = "dahoam/wohnzimmer/tsl2561_1/available";
 constexpr const std::string_view topic_tsl2561_lux = "dahoam/wohnzimmer/tsl2561_1/lux";
@@ -107,7 +106,8 @@ espchrono::millis_clock::time_point last_bmp085_temperature_pub;
 espchrono::millis_clock::time_point last_bmp085_altitude_pub;
 
 
-DHT_Unified dht(pins_dht, DHT11);
+DHT dht(pins_dht, DHT11);
+bool dhtInitialized{};
 struct DhtValue
 {
     espchrono::millis_clock::time_point timestamp;
@@ -424,36 +424,8 @@ extern "C" void app_main()
 
     {
         ESP_LOGI(TAG, "calling dht.begin()...");
-        dht.begin();
-        ESP_LOGI(TAG, "finished");
-
-        {
-            sensor_t sensor = dht.temperature().getSensor();
-            ESP_LOGI(TAG, "------------------------------------");
-            ESP_LOGI(TAG, "Temperature Sensor");
-            ESP_LOGI(TAG, "Sensor:       %s", sensor.name);
-            ESP_LOGI(TAG, "Driver Ver:   %i", sensor.version);
-            ESP_LOGI(TAG, "Unique ID:    %i", sensor.sensor_id);
-            ESP_LOGI(TAG, "Max Value:    %.1f C", sensor.max_value);
-            ESP_LOGI(TAG, "Min Value:    %.1f C", sensor.min_value);
-            ESP_LOGI(TAG, "Resolution:   %.1f C", sensor.resolution);
-            ESP_LOGI(TAG, "------------------------------------");
-            ESP_LOGI(TAG, "");
-        }
-
-        {
-            sensor_t sensor = dht.humidity().getSensor();
-            ESP_LOGI(TAG, "------------------------------------");
-            ESP_LOGI(TAG, "Humidity Sensor");
-            ESP_LOGI(TAG, "Sensor:       %s", sensor.name);
-            ESP_LOGI(TAG, "Driver Ver:   %i", sensor.version);
-            ESP_LOGI(TAG, "Unique ID:    %i", sensor.sensor_id);
-            ESP_LOGI(TAG, "Max Value:    %.1f %%", sensor.max_value);
-            ESP_LOGI(TAG, "Min Value:    %.1f %%", sensor.min_value);
-            ESP_LOGI(TAG, "Resolution:   %.1f %%", sensor.resolution);
-            ESP_LOGI(TAG, "------------------------------------");
-            ESP_LOGI(TAG, "");
-        }
+        dhtInitialized = dht.begin();
+        ESP_LOGI(TAG, "finished with %s", dhtInitialized ? "true" : "false");
     }
 
     while (true)
@@ -597,16 +569,13 @@ extern "C" void app_main()
             }
         }
 
-        {
-            std::optional<sensors_event_t> temperatureEvent = dht.temperature().getEvent();
-            std::optional<sensors_event_t> humidityEvent = dht.humidity().getEvent();
-
-            if (temperatureEvent && humidityEvent)
+        if (dhtInitialized) {
+            if (const auto data = dht.read())
             {
                 DhtValue dhtValue {
                     .timestamp = espchrono::millis_clock::now(),
-                    .temperature = temperatureEvent->temperature,
-                    .humidity = humidityEvent->relative_humidity
+                    .temperature = dht.readTemperature(*data),
+                    .humidity = dht.readHumidity(*data)
                 };
 
                 ESP_LOGI(TAG, "read dht temperature: %.1f C", dhtValue.temperature);
@@ -629,17 +598,17 @@ extern "C" void app_main()
                 }
 
                 lastDhtValue = dhtValue;
+            } else {
+                ESP_LOGW(TAG, "dht failed");
+                goto dhtOffline;
             }
-            else
-            {
-                ESP_LOGW(TAG, "dht temperature or humidity failed");
-                if (lastDhtValue && espchrono::ago(lastDhtValue->timestamp) >= availableTimeoutTime)
-                {
-                    ESP_LOGW(TAG, "dht timeouted");
-                    if (mqttClient && mqttConnected)
-                        mqttVerbosePub(topic_dht11_availability, "offline", 0, 1);
-                    lastDhtValue = std::nullopt;
-                }
+        } else {
+            dhtOffline:
+            if (lastDhtValue && espchrono::ago(lastDhtValue->timestamp) >= availableTimeoutTime) {
+                ESP_LOGW(TAG, "dht timeouted");
+                if (mqttClient && mqttConnected)
+                    mqttVerbosePub(topic_dht11_availability, "offline", 0, 1);
+                lastDhtValue = std::nullopt;
             }
         }
 
@@ -694,7 +663,7 @@ esp_err_t webserver_root_handler(httpd_req_t *req)
 
     if (lastTslValue)
     {
-        body += fmt::format("Brightness: {:.1f} lux<br/>\n", lastTslValue->lux);
+        body += fmt::format("TSL2561 Brightness: {:.1f} lux<br/>\n", lastTslValue->lux);
     }
 
     if (lastBmpValue)
