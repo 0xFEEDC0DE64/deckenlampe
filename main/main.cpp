@@ -45,6 +45,8 @@ constexpr const gpio_num_t pins_sda = GPIO_NUM_16;
 constexpr const gpio_num_t pins_scl = GPIO_NUM_17;
 constexpr const gpio_num_t pins_dht = GPIO_NUM_33;
 
+constexpr const std::string_view broker_url = "mqtt://192.168.0.2/";
+
 constexpr const std::string_view topic_lamp_availability = "dahoam/wohnzimmer/deckenlicht1/available";
 constexpr const std::string_view topic_lamp_status = "dahoam/wohnzimmer/deckenlicht1/status";
 constexpr const std::string_view topic_lamp_set = "dahoam/wohnzimmer/deckenlicht1/set";
@@ -52,8 +54,8 @@ constexpr const std::string_view topic_lamp_set = "dahoam/wohnzimmer/deckenlicht
 constexpr const std::string_view topic_switch_availability = "dahoam/wohnzimmer/lichtschalter1/available";
 constexpr const std::string_view topic_switch_status = "dahoam/wohnzimmer/lichtschalter1/status";
 
-constexpr const std::string_view topic_lux_availability = "dahoam/wohnzimmer/lux1/available";
-constexpr const std::string_view topic_lux_value = "dahoam/wohnzimmer/lux1/value";
+constexpr const std::string_view topic_tsl2561_availability = "dahoam/wohnzimmer/tsl2561_1/available";
+constexpr const std::string_view topic_tsl2561_lux = "dahoam/wohnzimmer/tsl2561_1/lux";
 
 constexpr const std::string_view topic_bmp085_availability = "dahoam/wohnzimmer/bmp085_1/available";
 constexpr const std::string_view topic_bmp085_pressure = "dahoam/wohnzimmer/bmp085_1/pressure";
@@ -64,6 +66,11 @@ constexpr const std::string_view topic_dht11_availability = "dahoam/wohnzimmer/d
 constexpr const std::string_view topic_dht11_temperature = "dahoam/wohnzimmer/dht11_1/temperature";
 constexpr const std::string_view topic_dht11_humidity = "dahoam/wohnzimmer/dht11_1/humidity";
 
+constexpr const auto availableTimeoutTime = 1min;
+constexpr const auto valueUpdateInterval = 15s;
+
+
+
 std::atomic<bool> mqttConnected;
 espcpputils::mqtt_client mqttClient;
 
@@ -73,18 +80,45 @@ std::atomic<bool> switchState;
 //espchrono::millis_clock::time_point lastLampToggle;
 //espchrono::millis_clock::time_point lastSwitchToggle;
 
+
 Adafruit_TSL2561_Unified tsl{TSL2561_ADDR_FLOAT, 12345};
-Adafruit_BMP085_Unified bmp{10085};
-DHT_Unified dht(pins_dht, DHT11);
-
 bool tslInitialized{};
-bool bmpInitialized{};
+struct TslValue
+{
+    espchrono::millis_clock::time_point timestamp;
+    float lux;
+};
+std::optional<TslValue> lastTslValue;
+espchrono::millis_clock::time_point last_tsl2561_lux_pub;
 
-std::optional<float> lastTslValue;
-struct BmpValue { float pressure; float temperature; float altitude; };
+
+Adafruit_BMP085_Unified bmp{10085};
+bool bmpInitialized{};
+struct BmpValue
+{
+    espchrono::millis_clock::time_point timestamp;
+    float pressure;
+    float temperature;
+    float altitude;
+};
 std::optional<BmpValue> lastBmpValue;
-struct DhtValue { float temperature; float humidity; };
+espchrono::millis_clock::time_point last_bmp085_pressure_pub;
+espchrono::millis_clock::time_point last_bmp085_temperature_pub;
+espchrono::millis_clock::time_point last_bmp085_altitude_pub;
+
+
+DHT_Unified dht(pins_dht, DHT11);
+struct DhtValue
+{
+    espchrono::millis_clock::time_point timestamp;
+    float temperature;
+    float humidity;
+};
 std::optional<DhtValue> lastDhtValue;
+espchrono::millis_clock::time_point last_dht11_temperature_pub;
+espchrono::millis_clock::time_point last_dht11_humidity_pub;
+
+
 
 esp_err_t webserver_root_handler(httpd_req_t *req);
 esp_err_t webserver_on_handler(httpd_req_t *req);
@@ -300,7 +334,7 @@ extern "C" void app_main()
 
     {
         esp_mqtt_client_config_t mqtt_cfg = {
-            .uri = "mqtt://192.168.0.2/",
+            .uri = broker_url.data(),
         };
 
         mqttClient = espcpputils::mqtt_client{&mqtt_cfg};
@@ -451,15 +485,21 @@ extern "C" void app_main()
                 /* Display the results (light is measured in lux) */
                 if (event->light)
                 {
-                    const float tslValue = event->light;
-                    ESP_LOGI(TAG, "read tsl: %.1f lux", tslValue);
+                    TslValue tslValue {
+                        .timestamp = espchrono::millis_clock::now(),
+                        .lux = event->light
+                    };
+                    ESP_LOGI(TAG, "read tsl: %.1f lux", tslValue.lux);
 
                     if (mqttClient && mqttConnected)
                     {
                         if (!lastTslValue)
-                            mqttVerbosePub(topic_lux_availability, "online", 0, 1);
-                        if (!lastTslValue || fmt::format("{:.1f}", *lastTslValue) != fmt::format("{:.1f}", tslValue))
-                            mqttVerbosePub(topic_lux_value, fmt::format("{:.1f}", tslValue), 0, 1);
+                            mqttVerbosePub(topic_tsl2561_availability, "online", 0, 1);
+                        if (!lastTslValue || espchrono::ago(last_tsl2561_lux_pub) >= valueUpdateInterval)
+                        {
+                            if (mqttVerbosePub(topic_tsl2561_lux, fmt::format("{:.1f}", tslValue.lux), 0, 1) >= 0)
+                                last_tsl2561_lux_pub = espchrono::millis_clock::now();
+                        }
                     }
 
                     lastTslValue = tslValue;
@@ -468,7 +508,8 @@ extern "C" void app_main()
                 {
                     /* If event.light = 0 lux the sensor is probably saturated
                      * and no reliable data could be generated! */
-                    ESP_LOGD(TAG, "tsl sensor overload %f", event->light);
+                    ESP_LOGW(TAG, "tsl sensor overload %f", event->light);
+                    goto tslOffline;
                 }
             }
             else
@@ -480,42 +521,54 @@ extern "C" void app_main()
         else
         {
             tslOffline:
-            if (lastTslValue)
+            if (lastTslValue && espchrono::ago(lastTslValue->timestamp) >= availableTimeoutTime)
             {
+                ESP_LOGW(TAG, "tsl timeouted");
                 if (mqttClient && mqttConnected)
-                    mqttVerbosePub(topic_lux_availability, "offline", 0, 1);
+                    mqttVerbosePub(topic_tsl2561_availability, "offline", 0, 1);
                 lastTslValue = std::nullopt;
             }
         }
 
         if (bmpInitialized)
         {
-            if (std::optional<sensors_event_t> event = bmp.getEvent())
+            if (std::optional<Adafruit_BMP085_Unified::TemperatureAndPressure> values = bmp.getTemperatureAndPressure())
             {
-                if (event->pressure)
+                if (values->temperature && values->pressure)
                 {
-                    BmpValue bmpValue { .pressure = event->pressure };
+                    BmpValue bmpValue {
+                        .timestamp = espchrono::millis_clock::now(),
+                        .pressure = values->pressure,
+                        .temperature = values->temperature
+                    };
                     ESP_LOGI(TAG, "read bmp Pressure: %.1f hPa", bmpValue.pressure);
-
-                    bmp.getTemperature(&bmpValue.temperature);
                     ESP_LOGI(TAG, "read bmp Temperature: %.1f C", bmpValue.temperature);
 
                     /* Then convert the atmospheric pressure, and SLP to altitude         */
                     /* Update this next line with the current SLP for better results      */
                     constexpr const float seaLevelPressure = SENSORS_PRESSURE_SEALEVELHPA;
-                    bmpValue.altitude = bmp.pressureToAltitude(seaLevelPressure, event->pressure);
+                    bmpValue.altitude = bmp.pressureToAltitude(seaLevelPressure, bmpValue.pressure);
                     ESP_LOGI(TAG, "read bmp Altitude: %.1f m", bmpValue.altitude);
 
                     if (mqttClient && mqttConnected)
                     {
                         if (!lastBmpValue)
                             mqttVerbosePub(topic_bmp085_availability, "online", 0, 1);
-                        if (!lastBmpValue || fmt::format("{:.1f}", lastBmpValue->pressure) != fmt::format("{:.1f}", bmpValue.pressure))
-                            mqttVerbosePub(topic_bmp085_pressure, fmt::format("{:.1f}", bmpValue.pressure), 0, 1);
-                        if (!lastBmpValue || fmt::format("{:.1f}", lastBmpValue->temperature) != fmt::format("{:.1f}", bmpValue.temperature))
-                            mqttVerbosePub(topic_bmp085_temperature, fmt::format("{:.1f}", bmpValue.temperature), 0, 1);
-                        if (!lastBmpValue || fmt::format("{:.1f}", lastBmpValue->altitude) != fmt::format("{:.1f}", bmpValue.altitude))
-                            mqttVerbosePub(topic_bmp085_altitude, fmt::format("{:.1f}", bmpValue.altitude), 0, 1);
+                        if (!lastBmpValue || espchrono::ago(last_bmp085_pressure_pub) >= valueUpdateInterval)
+                        {
+                            if (mqttVerbosePub(topic_bmp085_pressure, fmt::format("{:.1f}", bmpValue.pressure), 0, 1) >= 0)
+                                last_bmp085_pressure_pub = espchrono::millis_clock::now();
+                        }
+                        if (!lastBmpValue || espchrono::ago(last_bmp085_temperature_pub) >= valueUpdateInterval)
+                        {
+                            if (mqttVerbosePub(topic_bmp085_temperature, fmt::format("{:.1f}", bmpValue.temperature), 0, 1) >= 0)
+                                last_bmp085_temperature_pub = espchrono::millis_clock::now();
+                        }
+                        if (!lastBmpValue || espchrono::ago(last_bmp085_altitude_pub) >= valueUpdateInterval)
+                        {
+                            if (mqttVerbosePub(topic_bmp085_altitude, fmt::format("{:.1f}", bmpValue.altitude), 0, 1) >= 0)
+                                last_bmp085_altitude_pub = espchrono::millis_clock::now();
+                        }
                     }
 
                     lastBmpValue = bmpValue;
@@ -535,8 +588,9 @@ extern "C" void app_main()
         else
         {
             bmpOffline:
-            if (lastBmpValue)
+            if (lastBmpValue && espchrono::ago(lastBmpValue->timestamp) >= availableTimeoutTime)
             {
+                ESP_LOGW(TAG, "bmp timeouted");
                 if (mqttClient && mqttConnected)
                     mqttVerbosePub(topic_bmp085_availability, "offline", 0, 1);
                 lastBmpValue = std::nullopt;
@@ -550,6 +604,7 @@ extern "C" void app_main()
             if (temperatureEvent && humidityEvent)
             {
                 DhtValue dhtValue {
+                    .timestamp = espchrono::millis_clock::now(),
                     .temperature = temperatureEvent->temperature,
                     .humidity = humidityEvent->relative_humidity
                 };
@@ -561,10 +616,16 @@ extern "C" void app_main()
                 {
                     if (!lastDhtValue)
                         mqttVerbosePub(topic_dht11_availability, "online", 0, 1);
-                    if (!lastDhtValue || fmt::format("{:.1f}", lastDhtValue->temperature) != fmt::format("{:.1f}", dhtValue.temperature))
-                        mqttVerbosePub(topic_dht11_temperature, fmt::format("{:.1f}", dhtValue.temperature), 0, 1);
-                    if (!lastDhtValue || fmt::format("{:.1f}", lastDhtValue->humidity) != fmt::format("{:.1f}", dhtValue.humidity))
-                        mqttVerbosePub(topic_dht11_humidity, fmt::format("{:.1f}", dhtValue.humidity), 0, 1);
+                    if (!lastDhtValue || espchrono::ago(last_dht11_temperature_pub) >= valueUpdateInterval)
+                    {
+                        if (mqttVerbosePub(topic_dht11_temperature, fmt::format("{:.1f}", dhtValue.temperature), 0, 1) >= 0)
+                            last_dht11_temperature_pub = espchrono::millis_clock::now();
+                    }
+                    if (!lastDhtValue || espchrono::ago(last_dht11_humidity_pub) >= valueUpdateInterval)
+                    {
+                        if (mqttVerbosePub(topic_dht11_humidity, fmt::format("{:.1f}", dhtValue.humidity), 0, 1) >= 0)
+                            last_dht11_humidity_pub = espchrono::millis_clock::now();
+                    }
                 }
 
                 lastDhtValue = dhtValue;
@@ -572,8 +633,9 @@ extern "C" void app_main()
             else
             {
                 ESP_LOGW(TAG, "dht temperature or humidity failed");
-                if (lastDhtValue)
+                if (lastDhtValue && espchrono::ago(lastDhtValue->timestamp) >= availableTimeoutTime)
                 {
+                    ESP_LOGW(TAG, "dht timeouted");
                     if (mqttClient && mqttConnected)
                         mqttVerbosePub(topic_dht11_availability, "offline", 0, 1);
                     lastDhtValue = std::nullopt;
@@ -631,7 +693,9 @@ esp_err_t webserver_root_handler(httpd_req_t *req)
     body += fmt::format("Switch: {}<br/>\n", switchState ? "ON" : "OFF");
 
     if (lastTslValue)
-        body += fmt::format("Brightness: {:.1f} lux<br/>\n", *lastTslValue);
+    {
+        body += fmt::format("Brightness: {:.1f} lux<br/>\n", lastTslValue->lux);
+    }
 
     if (lastBmpValue)
     {
@@ -738,23 +802,31 @@ void mqttEventHandler(void *event_handler_arg, esp_event_base_t event_base, int3
         mqttVerbosePub(topic_switch_availability, "online", 0, 1);
         mqttVerbosePub(topic_switch_status, switchState.load() ? "ON" : "OFF", 0, 1);
 
-        mqttVerbosePub(topic_lux_availability, lastTslValue ? "online" : "offline", 0, 1);
+        mqttVerbosePub(topic_tsl2561_availability, lastTslValue ? "online" : "offline", 0, 1);
         if (lastTslValue)
-            mqttVerbosePub(topic_lux_value, fmt::format("{:.1f}", *lastTslValue), 0, 1);
+        {
+            if (mqttVerbosePub(topic_tsl2561_lux, fmt::format("{:.1f}", lastTslValue->lux), 0, 1) >= 0)
+                last_tsl2561_lux_pub = espchrono::millis_clock::now();
+        }
 
         mqttVerbosePub(topic_bmp085_availability, lastBmpValue ? "online" : "offline", 0, 1);
         if (lastBmpValue)
         {
-            mqttVerbosePub(topic_bmp085_pressure, fmt::format("{:.1f}", lastBmpValue->pressure), 0, 1);
-            mqttVerbosePub(topic_bmp085_temperature, fmt::format("{:.1f}", lastBmpValue->temperature), 0, 1);
-            mqttVerbosePub(topic_bmp085_altitude, fmt::format("{:.1f}", lastBmpValue->altitude), 0, 1);
+            if (mqttVerbosePub(topic_bmp085_pressure, fmt::format("{:.1f}", lastBmpValue->pressure), 0, 1) >= 0)
+                last_bmp085_pressure_pub = espchrono::millis_clock::now();
+            if (mqttVerbosePub(topic_bmp085_temperature, fmt::format("{:.1f}", lastBmpValue->temperature), 0, 1) >= 0)
+                last_bmp085_temperature_pub = espchrono::millis_clock::now();
+            if (mqttVerbosePub(topic_bmp085_altitude, fmt::format("{:.1f}", lastBmpValue->altitude), 0, 1) >= 0)
+                last_bmp085_altitude_pub = espchrono::millis_clock::now();
         }
 
         mqttVerbosePub(topic_dht11_availability, lastDhtValue ? "online" : "offline", 0, 1);
         if (lastDhtValue)
         {
-            mqttVerbosePub(topic_dht11_temperature, fmt::format("{:.1f}", lastDhtValue->temperature), 0, 1);
-            mqttVerbosePub(topic_dht11_humidity, fmt::format("{:.1f}", lastDhtValue->humidity), 0, 1);
+            if (mqttVerbosePub(topic_dht11_temperature, fmt::format("{:.1f}", lastDhtValue->temperature), 0, 1) >= 0)
+                last_dht11_temperature_pub = espchrono::millis_clock::now();
+            if (mqttVerbosePub(topic_dht11_humidity, fmt::format("{:.1f}", lastDhtValue->humidity), 0, 1) >= 0)
+                last_dht11_humidity_pub = espchrono::millis_clock::now();
         }
 
         mqttClient.subscribe(topic_lamp_set, 0);
@@ -812,8 +884,13 @@ void mqttEventHandler(void *event_handler_arg, esp_event_base_t event_base, int3
 
 int mqttVerbosePub(std::string_view topic, std::string_view value, int qos, int retain)
 {
-    ESP_LOGI(TAG, "topic=\"%.*s\" value=\"%.*s\"", topic.size(), topic.data(), value.size(), value.data());
-    return mqttClient.publish(topic, value, qos, retain);
+    ESP_LOGD(TAG, "topic=\"%.*s\" value=\"%.*s\"", topic.size(), topic.data(), value.size(), value.data());
+    const auto pending_msg_id = mqttClient.publish(topic, value, qos, retain);
+    if (pending_msg_id < 0)
+        ESP_LOGE(TAG, "topic=\"%.*s\" value=\"%.*s\" failed pending_msg_id=%i", topic.size(), topic.data(), value.size(), value.data(), pending_msg_id);
+    else
+        ESP_LOGI(TAG, "topic=\"%.*s\" value=\"%.*s\" succeeded pending_msg_id=%i", topic.size(), topic.data(), value.size(), value.data(), pending_msg_id);
+    return pending_msg_id;
 }
 } // namespace
 
