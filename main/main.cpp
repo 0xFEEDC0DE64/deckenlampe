@@ -26,6 +26,8 @@
 // 3rdparty lib includes
 #include <Adafruit_Sensor.h>
 #include <Adafruit_TSL2561_U.h>
+#include <Adafruit_BMP085_U.h>
+#include <fmt/core.h>
 
 // local includes
 #include "espwifistack.h"
@@ -50,6 +52,11 @@ constexpr const std::string_view topic_switch_status = "dahoam/wohnzimmer/lichts
 constexpr const std::string_view topic_lux_availability = "dahoam/wohnzimmer/lux1/available";
 constexpr const std::string_view topic_lux_value = "dahoam/wohnzimmer/lux1/value";
 
+constexpr const std::string_view topic_bmp085_availability = "dahoam/wohnzimmer/bmp085_1/available";
+constexpr const std::string_view topic_bmp085_pressure = "dahoam/wohnzimmer/bmp085_1/pressure";
+constexpr const std::string_view topic_bmp085_temperature = "dahoam/wohnzimmer/bmp085_1/temperature";
+constexpr const std::string_view topic_bmp085_altitude = "dahoam/wohnzimmer/bmp085_1/altitude";
+
 std::atomic<bool> mqttConnected;
 espcpputils::mqtt_client mqttClient;
 
@@ -60,10 +67,14 @@ std::atomic<bool> switchState;
 //espchrono::millis_clock::time_point lastSwitchToggle;
 
 Adafruit_TSL2561_Unified tsl{TSL2561_ADDR_FLOAT, 12345};
+Adafruit_BMP085_Unified bmp{10085};
 
-bool tslInitialized;
+bool tslInitialized{};
+bool bmpInitialized{};
 
 std::optional<float> lastTslValue;
+struct BmpValue { float pressure; float temperature; float altitude; };
+std::optional<BmpValue> lastBmpValue;
 
 esp_err_t webserver_root_handler(httpd_req_t *req);
 esp_err_t webserver_on_handler(httpd_req_t *req);
@@ -317,9 +328,9 @@ extern "C" void app_main()
             ESP_LOGI(TAG, "Sensor:       %s", sensor.name);
             ESP_LOGI(TAG, "Driver Ver:   %i", sensor.version);
             ESP_LOGI(TAG, "Unique ID:    %i", sensor.sensor_id);
-            ESP_LOGI(TAG, "Max Value:    %f lux", sensor.max_value);
-            ESP_LOGI(TAG, "Min Value:    %f lux", sensor.min_value);
-            ESP_LOGI(TAG, "Resolution:   %f lux", sensor.resolution);
+            ESP_LOGI(TAG, "Max Value:    %.1f lux", sensor.max_value);
+            ESP_LOGI(TAG, "Min Value:    %.1f lux", sensor.min_value);
+            ESP_LOGI(TAG, "Resolution:   %.1f lux", sensor.resolution);
             ESP_LOGI(TAG, "------------------------------------");
             ESP_LOGI(TAG, "");
 
@@ -338,6 +349,25 @@ extern "C" void app_main()
             ESP_LOGI(TAG, "Gain:         Auto");
             ESP_LOGI(TAG, "Timing:       13 ms");
             ESP_LOGI(TAG, "------------------------------------");
+        }
+    }
+
+    {
+        ESP_LOGI(TAG, "calling bmp.begin()...");
+        bmpInitialized = bmp.begin();
+        ESP_LOGI(TAG, "finished with %s", bmpInitialized ? "true" : "false");
+
+        if (bmpInitialized) {
+            sensor_t sensor = bmp.getSensor();
+            ESP_LOGI(TAG, "------------------------------------");
+            ESP_LOGI(TAG, "Sensor:       %s", sensor.name);
+            ESP_LOGI(TAG, "Driver Ver:   %i", sensor.version);
+            ESP_LOGI(TAG, "Unique ID:    %i", sensor.sensor_id);
+            ESP_LOGI(TAG, "Max Value:    %.1f hPa", sensor.max_value);
+            ESP_LOGI(TAG, "Min Value:    %.1f hPa", sensor.min_value);
+            ESP_LOGI(TAG, "Resolution:   %.1f hPa", sensor.resolution);
+            ESP_LOGI(TAG, "------------------------------------");
+            ESP_LOGI(TAG, "");
         }
     }
 
@@ -367,33 +397,77 @@ extern "C" void app_main()
             if (std::optional<sensors_event_t> event = tsl.getEvent()) {
                 /* Display the results (light is measured in lux) */
                 if (event->light) {
-                    ESP_LOGW(TAG, "%f lux", event->light);
+                    const float tslValue = event->light;
+                    ESP_LOGI(TAG, "read tsl: %.1f lux", tslValue);
 
                     if (mqttClient && mqttConnected) {
                         if (!lastTslValue)
                             mqttVerbosePub(topic_lux_availability, "online", 0, 1);
-                        if (!lastTslValue || *lastTslValue != event->light)
-                            mqttVerbosePub(topic_lux_value, std::to_string(event->light), 0, 1);
+                        if (!lastTslValue || fmt::format("{:.1f}", *lastTslValue) != fmt::format("{:.1f}", tslValue))
+                            mqttVerbosePub(topic_lux_value, fmt::format("{:.1f}", tslValue), 0, 1);
                     }
 
-                    lastTslValue = event->light;
+                    lastTslValue = tslValue;
                 } else {
                     /* If event.light = 0 lux the sensor is probably saturated
                      * and no reliable data could be generated! */
-                    ESP_LOGD(TAG, "Sensor overload %f", event->light);
+                    ESP_LOGD(TAG, "tsl sensor overload %f", event->light);
                 }
             } else {
                 ESP_LOGW(TAG, "tsl failed");
-                if (lastTslValue) {
-                    if (mqttClient && mqttConnected)
-                        mqttVerbosePub(topic_lux_availability, "offline", 0, 1);
-                    lastTslValue = std::nullopt;
-                }
+                goto tslOffline;
             }
-        } else if (lastTslValue) {
-            if (mqttClient && mqttConnected)
-                mqttVerbosePub(topic_lux_availability, "offline", 0, 1);
-            lastTslValue = std::nullopt;
+        } else {
+            tslOffline:
+            if (lastTslValue) {
+                if (mqttClient && mqttConnected)
+                    mqttVerbosePub(topic_lux_availability, "offline", 0, 1);
+                lastTslValue = std::nullopt;
+            }
+        }
+
+        if (bmpInitialized) {
+            if (std::optional<sensors_event_t> event = bmp.getEvent()) {
+                if (event->pressure) {
+                    BmpValue bmpValue { .pressure = event->pressure };
+                    ESP_LOGI(TAG, "read bmp Pressure: %.1f hPa", bmpValue.pressure);
+
+                    bmp.getTemperature(&bmpValue.temperature);
+                    ESP_LOGI(TAG, "read bmp Temperature: %.1f C", bmpValue.temperature);
+
+                    /* Then convert the atmospheric pressure, and SLP to altitude         */
+                    /* Update this next line with the current SLP for better results      */
+                    constexpr const float seaLevelPressure = SENSORS_PRESSURE_SEALEVELHPA;
+                    bmpValue.altitude = bmp.pressureToAltitude(seaLevelPressure, event->pressure);
+                    ESP_LOGI(TAG, "read bmp Altitude: %.1f m", bmpValue.altitude);
+
+                    if (mqttClient && mqttConnected) {
+                        if (!lastBmpValue)
+                            mqttVerbosePub(topic_bmp085_availability, "online", 0, 1);
+                        if (!lastBmpValue || fmt::format("{:.1f}", lastBmpValue->pressure) != fmt::format("{:.1f}", bmpValue.pressure))
+                            mqttVerbosePub(topic_bmp085_pressure, fmt::format("{:.1f}", bmpValue.pressure), 0, 1);
+                        if (!lastBmpValue || fmt::format("{:.1f}", lastBmpValue->temperature) != fmt::format("{:.1f}", bmpValue.temperature))
+                            mqttVerbosePub(topic_bmp085_temperature, fmt::format("{:.1f}", bmpValue.temperature), 0, 1);
+                        if (!lastBmpValue || fmt::format("{:.1f}", lastBmpValue->altitude) != fmt::format("{:.1f}", bmpValue.altitude))
+                            mqttVerbosePub(topic_bmp085_altitude, fmt::format("{:.1f}", bmpValue.altitude), 0, 1);
+                    }
+
+                    lastBmpValue = bmpValue;
+                } else {
+                    ESP_LOGW(TAG, "bmp sensor error");
+                    goto bmpOffline;
+                }
+            } else {
+                ESP_LOGW(TAG, "bmp failed");
+                goto bmpOffline;
+            }
+        } else {
+            bmpOffline:
+            if (lastBmpValue) {
+                if (mqttClient && mqttConnected)
+                    mqttVerbosePub(topic_bmp085_availability, "offline", 0, 1);
+                lastBmpValue = std::nullopt;
+            }
         }
 
 #if defined(CONFIG_ESP_TASK_WDT_PANIC) || defined(CONFIG_ESP_TASK_WDT)
@@ -440,17 +514,16 @@ esp_err_t webserver_root_handler(httpd_req_t *req)
                        "<a href=\"/off\">off</a><br/>\n"
                        "<a href=\"/toggle\">toggle</a><br/>\n"
                        "<a href=\"/reboot\">reboot</a><br/>\n"
-                       "<br/>\n"
-                       "Lamp: ";
-    body += lampState ? "ON" : "OFF";
-    body += "<br/>\n"
-            "Switch: ";
-    body += switchState ? "ON" : "OFF";
-    body += "<br/>\n";
+                       "<br/>\n";
+    body += fmt::format("Lamp: {}<br/>\n", lampState ? "ON" : "OFF");
+    body += fmt::format("Switch: {}<br/>\n", switchState ? "ON" : "OFF");
     if (lastTslValue) {
-        body += "Brightness: ";
-        body += std::to_string(*lastTslValue);
-        body += " lux<br/>\n";
+        body += fmt::format("Brightness: {:.1f} lux<br/>\n", *lastTslValue);
+    }
+    if (lastBmpValue) {
+        body += fmt::format("BMP085 Pressure: {:.1f} lux<br/>\n", lastBmpValue->pressure);
+        body += fmt::format("BMP085 Temperature: {:.1f} C<br/>\n", lastBmpValue->temperature);
+        body += fmt::format("BMP085 Altitude: {:.1f} m<br/>\n", lastBmpValue->altitude);
     }
 
     CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
@@ -543,11 +616,15 @@ void mqttEventHandler(void *event_handler_arg, esp_event_base_t event_base, int3
         mqttVerbosePub(topic_switch_availability, "online", 0, 1);
         mqttVerbosePub(topic_switch_status, switchState.load() ? "ON" : "OFF", 0, 1);
 
-        if (lastTslValue) {
-            mqttVerbosePub(topic_lux_availability, "online", 0, 1);
-            mqttVerbosePub(topic_lux_value, std::to_string(*lastTslValue).c_str(), 0, 1);
-        } else {
-            mqttVerbosePub(topic_lux_availability, "offline", 0, 1);
+        mqttVerbosePub(topic_lux_availability, lastTslValue ? "online" : "offline", 0, 1);
+        if (lastTslValue)
+            mqttVerbosePub(topic_lux_value, fmt::format("{:.1f}", *lastTslValue), 0, 1);
+
+        mqttVerbosePub(topic_bmp085_availability, lastBmpValue ? "online" : "offline", 0, 1);
+        if (lastBmpValue) {
+            mqttVerbosePub(topic_bmp085_pressure, fmt::format("{:.1f}", lastBmpValue->pressure), 0, 1);
+            mqttVerbosePub(topic_bmp085_temperature, fmt::format("{:.1f}", lastBmpValue->temperature), 0, 1);
+            mqttVerbosePub(topic_bmp085_altitude, fmt::format("{:.1f}", lastBmpValue->altitude), 0, 1);
         }
 
         mqttClient.subscribe(topic_lamp_set, 0);
@@ -581,9 +658,9 @@ void mqttEventHandler(void *event_handler_arg, esp_event_base_t event_base, int3
 
         if (topic == topic_lamp_set)
         {
-            lampState = value == "ON";
+            bool newState = (lampState = (value == "ON"));
             if (mqttClient && mqttConnected)
-                mqttVerbosePub(topic_lamp_status, lampState ? "ON" : "OFF", 0, 1);
+                mqttVerbosePub(topic_lamp_status, newState ? "ON" : "OFF", 0, 1);
         }
 
         break;

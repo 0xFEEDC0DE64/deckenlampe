@@ -31,3 +31,6 @@
 [submodule "components/Adafruit_TSL2561"]
 	path = components/Adafruit_TSL2561
 	url = git@github.com:0xFEEDC0DE64/Adafruit_TSL2561.git
+[submodule "components/Adafruit_BMP085_Unified"]
+	path = components/Adafruit_BMP085_Unified
+	url = git@github.com:0xFEEDC0DE64/Adafruit_BMP085_Unified.git
