@@ -29,10 +29,10 @@ espchrono::millis_clock::time_point last_dht11_readout;
 
 void init_dht()
 {
-    if (!config::enable_dht)
+    if (!config::enable_dht.value())
         return;
 
-    dht.construct(config::pins_dht, DHT11);
+    dht.construct(config::pins_dht.value(), DHT11);
 
     ESP_LOGI(TAG, "calling dht.begin()...");
     dhtInitialized = dht->begin();
@@ -41,7 +41,7 @@ void init_dht()
 
 void update_dht()
 {
-    if (!config::enable_dht)
+    if (!config::enable_dht.value())
         return;
 
     if (dhtInitialized) {
@@ -62,13 +62,13 @@ void update_dht()
 
             if (mqttConnected) {
                 if (!lastDhtValue)
-                    mqttVerbosePub(config::topic_dht11_availability, "online", 0, 1);
-                if (!lastDhtValue || espchrono::ago(last_dht11_temperature_pub) >= config::valueUpdateInterval) {
-                    if (mqttVerbosePub(config::topic_dht11_temperature, fmt::format("{:.1f}", dhtValue.temperature), 0, 1) >= 0)
+                    mqttVerbosePub(config::topic_dht11_availability.value(), "online", 0, 1);
+                if (!lastDhtValue || espchrono::ago(last_dht11_temperature_pub) >= config::valueUpdateInterval.value()) {
+                    if (mqttVerbosePub(config::topic_dht11_temperature.value(), fmt::format("{:.1f}", dhtValue.temperature), 0, 1) >= 0)
                         last_dht11_temperature_pub = espchrono::millis_clock::now();
                 }
-                if (!lastDhtValue || espchrono::ago(last_dht11_humidity_pub) >= config::valueUpdateInterval) {
-                    if (mqttVerbosePub(config::topic_dht11_humidity, fmt::format("{:.1f}", dhtValue.humidity), 0, 1) >= 0)
+                if (!lastDhtValue || espchrono::ago(last_dht11_humidity_pub) >= config::valueUpdateInterval.value()) {
+                    if (mqttVerbosePub(config::topic_dht11_humidity.value(), fmt::format("{:.1f}", dhtValue.humidity), 0, 1) >= 0)
                         last_dht11_humidity_pub = espchrono::millis_clock::now();
                 }
             }
@@ -80,10 +80,10 @@ void update_dht()
         }
     } else {
     dhtOffline:
-        if (lastDhtValue && espchrono::ago(lastDhtValue->timestamp) >= config::availableTimeoutTime) {
+        if (lastDhtValue && espchrono::ago(lastDhtValue->timestamp) >= config::availableTimeoutTime.value()) {
             ESP_LOGW(TAG, "dht timeouted");
             if (mqttConnected)
-                mqttVerbosePub(config::topic_dht11_availability, "offline", 0, 1);
+                mqttVerbosePub(config::topic_dht11_availability.value(), "offline", 0, 1);
             lastDhtValue = std::nullopt;
         }
     }

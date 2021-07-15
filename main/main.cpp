@@ -81,10 +81,10 @@ extern "C" void app_main()
 
     init_switch();
 
-    if (config::enable_i2c)
+    if (config::enable_i2c.value())
     {
         ESP_LOGI(TAG, "calling Wire.begin()...");
-        const auto result = Wire.begin(config::pins_sda, config::pins_scl);
+        const auto result = Wire.begin(config::pins_sda.value(), config::pins_scl.value());
         ESP_LOGI(TAG, "finished with %s", result ? "true" : "false");
     }
 
@@ -104,30 +104,40 @@ extern "C" void app_main()
 
     while (true)
     {
-        update_config();
-
-        update_lamp();
-
-        update_wifi();
-
-        update_webserver();
-
-        update_mdns();
-
-        update_mqtt();
-
-        update_dht();
-
-        update_tsl();
-
-        update_bmp();
-
-        update_switch();
-
 #if defined(CONFIG_ESP_TASK_WDT_PANIC) || defined(CONFIG_ESP_TASK_WDT)
         if (const auto result = esp_task_wdt_reset(); result != ESP_OK)
             ESP_LOGE(TAG, "esp_task_wdt_reset() failed with %s", esp_err_to_name(result));
 #endif
+
+        update_config();
+        vPortYield();
+
+        update_lamp();
+        vPortYield();
+
+        update_wifi();
+        vPortYield();
+
+        update_webserver();
+        vPortYield();
+
+        update_mdns();
+        vPortYield();
+
+        update_mqtt();
+        vPortYield();
+
+        update_dht();
+        vPortYield();
+
+        update_tsl();
+        vPortYield();
+
+        update_bmp();
+        vPortYield();
+
+        update_switch();
+        vPortYield();
 
 #ifdef CONFIG_APP_ROLLBACK_ENABLE
         if (ota_state == ESP_OTA_IMG_PENDING_VERIFY)
@@ -138,7 +148,7 @@ extern "C" void app_main()
         }
 #endif
 
-        vPortYield();
+        vTaskDelay(std::chrono::ceil<espcpputils::ticks>(20ms).count());
     }
 }
 

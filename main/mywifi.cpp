@@ -24,9 +24,9 @@ wifi_stack::config makeWifiConfig()
 {
     return wifi_stack::config {
         .wifiEnabled = true,
-        .hostname = std::string{config::hostname},
+        .hostname = config::hostname.value(),
         .wifis = std::array<wifi_stack::wifi_entry, 10> {
-            wifi_stack::wifi_entry { .ssid = std::string{config::sta_ssid}, .key = std::string{config::sta_key} },
+            wifi_stack::wifi_entry { .ssid = config::sta_ssid.value(), .key = config::sta_key.value() },
             wifi_stack::wifi_entry { .ssid = {}, .key = {} },
             wifi_stack::wifi_entry { .ssid = {}, .key = {} },
             wifi_stack::wifi_entry { .ssid = {}, .key = {} },
@@ -47,16 +47,16 @@ wifi_stack::config makeWifiConfig()
         },
         .ap = {
             {
-                .ssid = std::string{config::ap_ssid},
-                .key = std::string{config::ap_key}
+                .ssid = config::ap_ssid.value(),
+                .key = config::ap_key.value()
             },
             .channel = 1,
             .authmode = WIFI_AUTH_WPA2_PSK,
             .ssid_hidden = false,
             .max_connection = 4,
             .beacon_interval = 100,
-            .ip{192, 168, 4, 1},
-            .subnet{255, 255, 255, 0}
+            .ip = ap_ip,
+            .subnet = ap_subnet
         },
         .min_rssi = -90
     };

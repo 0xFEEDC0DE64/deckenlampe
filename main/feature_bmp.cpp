@@ -30,7 +30,7 @@ espchrono::millis_clock::time_point last_bmp085_readout;
 
 void init_bmp()
 {
-    if (!config::enable_i2c || !config::enable_bmp)
+    if (!config::enable_i2c.value() || !config::enable_bmp.value())
         return;
 
     bmp.construct(10085);
@@ -55,7 +55,7 @@ void init_bmp()
 
 void update_bmp()
 {
-    if (!config::enable_i2c || !config::enable_bmp)
+    if (!config::enable_i2c.value() || !config::enable_bmp.value())
         return;
 
     if (bmpInitialized) {
@@ -81,17 +81,17 @@ void update_bmp()
 
                 if (mqttConnected) {
                     if (!lastBmpValue)
-                        mqttVerbosePub(config::topic_bmp085_availability, "online", 0, 1);
-                    if (!lastBmpValue || espchrono::ago(last_bmp085_pressure_pub) >= config::valueUpdateInterval) {
-                        if (mqttVerbosePub(config::topic_bmp085_pressure, fmt::format("{:.1f}", bmpValue.pressure), 0, 1) >= 0)
+                        mqttVerbosePub(config::topic_bmp085_availability.value(), "online", 0, 1);
+                    if (!lastBmpValue || espchrono::ago(last_bmp085_pressure_pub) >= config::valueUpdateInterval.value()) {
+                        if (mqttVerbosePub(config::topic_bmp085_pressure.value(), fmt::format("{:.1f}", bmpValue.pressure), 0, 1) >= 0)
                             last_bmp085_pressure_pub = espchrono::millis_clock::now();
                     }
-                    if (!lastBmpValue || espchrono::ago(last_bmp085_temperature_pub) >= config::valueUpdateInterval) {
-                        if (mqttVerbosePub(config::topic_bmp085_temperature, fmt::format("{:.1f}", bmpValue.temperature), 0, 1) >= 0)
+                    if (!lastBmpValue || espchrono::ago(last_bmp085_temperature_pub) >= config::valueUpdateInterval.value()) {
+                        if (mqttVerbosePub(config::topic_bmp085_temperature.value(), fmt::format("{:.1f}", bmpValue.temperature), 0, 1) >= 0)
                             last_bmp085_temperature_pub = espchrono::millis_clock::now();
                     }
-                    if (!lastBmpValue || espchrono::ago(last_bmp085_altitude_pub) >= config::valueUpdateInterval) {
-                        if (mqttVerbosePub(config::topic_bmp085_altitude, fmt::format("{:.1f}", bmpValue.altitude), 0, 1) >= 0)
+                    if (!lastBmpValue || espchrono::ago(last_bmp085_altitude_pub) >= config::valueUpdateInterval.value()) {
+                        if (mqttVerbosePub(config::topic_bmp085_altitude.value(), fmt::format("{:.1f}", bmpValue.altitude), 0, 1) >= 0)
                             last_bmp085_altitude_pub = espchrono::millis_clock::now();
                     }
                 }
@@ -107,10 +107,10 @@ void update_bmp()
         }
     } else {
     bmpOffline:
-        if (lastBmpValue && espchrono::ago(lastBmpValue->timestamp) >= config::availableTimeoutTime) {
+        if (lastBmpValue && espchrono::ago(lastBmpValue->timestamp) >= config::availableTimeoutTime.value()) {
             ESP_LOGW(TAG, "bmp timeouted");
             if (mqttConnected)
-                mqttVerbosePub(config::topic_bmp085_availability, "offline", 0, 1);
+                mqttVerbosePub(config::topic_bmp085_availability.value(), "offline", 0, 1);
             lastBmpValue = std::nullopt;
         }
     }

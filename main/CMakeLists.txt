@@ -2,11 +2,13 @@ idf_build_get_property(project_dir PROJECT_DIR)
 message(STATUS "The project dir is: ${project_dir}")
 
 set(headers
+    configwrapper.h
     feature_bmp.h
     feature_dht.h
     feature_lamp.h
     feature_switch.h
     feature_tsl.h
+    futurecpp.h
     myconfig.h
     mymdns.h
     mymqtt.h
@@ -15,6 +17,7 @@ set(headers
 )
 
 set(sources
+    configwrapper.cpp
     feature_bmp.cpp
     feature_dht.cpp
     feature_lamp.cpp

@@ -38,11 +38,12 @@ esp_err_t webserver_reboot_handler(httpd_req_t *req);
 
 void init_webserver()
 {
-    if (!config::enable_webserver)
+    if (!config::enable_webserver.value())
         return;
 
     {
         httpd_config_t httpConfig HTTPD_DEFAULT_CONFIG();
+        httpConfig.core_id = 1;
 
         const auto result = httpd_start(&httpdHandle, &httpConfig);
         ESP_LOG_LEVEL_LOCAL((result == ESP_OK ? ESP_LOG_INFO : ESP_LOG_ERROR), TAG, "httpd_start(): %s", esp_err_to_name(result));
@@ -67,7 +68,7 @@ void init_webserver()
 
 void update_webserver()
 {
-    if (!config::enable_webserver)
+    if (!config::enable_webserver.value())
         return;
 }
 
@@ -92,7 +93,7 @@ esp_err_t webserver_root_handler(httpd_req_t *req)
 {
     std::string body = "this is work in progress...<br/>\n";
 
-    if (config::enable_lamp) {
+    if (config::enable_lamp.value()) {
         body += "<a href=\"/on\">on</a><br/>\n"
                 "<a href=\"/off\">off</a><br/>\n"
                 "<a href=\"/toggle\">toggle</a><br/>\n";
@@ -101,13 +102,13 @@ esp_err_t webserver_root_handler(httpd_req_t *req)
     body += "<a href=\"/reboot\">reboot</a><br/>\n"
             "<br/>\n";
 
-    if (config::enable_lamp)
+    if (config::enable_lamp.value())
         body += fmt::format("Lamp: {}<br/>\n", lampState ? "ON" : "OFF");
 
-    if (config::enable_switch)
+    if (config::enable_switch.value())
         body += fmt::format("Switch: {}<br/>\n", switchState ? "ON" : "OFF");
 
-    if (config::enable_dht) {
+    if (config::enable_dht.value()) {
         if (lastDhtValue) {
             body += fmt::format("DHT11 Temperature: {:.1f} C<br/>\n", lastDhtValue->temperature);
             body += fmt::format("DHT11 Humidity: {:.1f} %<br/>\n", lastDhtValue->humidity);
@@ -115,14 +116,14 @@ esp_err_t webserver_root_handler(httpd_req_t *req)
             body += "DHT11 not available at the moment<br/>\n";
     }
 
-    if (config::enable_i2c && config::enable_tsl) {
+    if (config::enable_i2c.value() && config::enable_tsl.value()) {
         if (lastTslValue) {
             body += fmt::format("TSL2561 Brightness: {:.1f} lux<br/>\n", lastTslValue->lux);
         } else
             body += "TSL2561 not available at the moment<br/>\n";
     }
 
-    if (config::enable_i2c && config::enable_bmp) {
+    if (config::enable_i2c.value() && config::enable_bmp.value()) {
         if (lastBmpValue) {
             body += fmt::format("BMP085 Pressure: {:.1f} lux<br/>\n", lastBmpValue->pressure);
             body += fmt::format("BMP085 Temperature: {:.1f} C<br/>\n", lastBmpValue->temperature);
@@ -205,16 +206,18 @@ esp_err_t webserver_root_handler(httpd_req_t *req)
         body += "<span style=\"color: red;\">no wifi scan result at the moment!</span><br/>\n";
     }
 
-    body += "<br/>\n"
-            "<h2>MQTT</h2>\n"
-            "<table border=\"1\">\n";
-    body += fmt::format("<tr><th>client url</th><td>{}</td></tr>\n", htmlentities(config::broker_url));
-    body += fmt::format("<tr><th>client constructed</th><td>{}</td></tr>\n", mqttClient ? "true" : "false");
-    if (mqttClient) {
-        body += fmt::format("<tr><th>client started</th><td>{}</td></tr>\n", mqttStarted ? "true" : "false");
-        body += fmt::format("<tr><th>client connected</th><td>{}</td></tr>\n", mqttConnected ? "true" : "false");
+    if (config::enable_mqtt.value()) {
+        body += "<br/>\n"
+                "<h2>MQTT</h2>\n"
+                "<table border=\"1\">\n";
+        body += fmt::format("<tr><th>client url</th><td>{}</td></tr>\n", htmlentities(config::broker_url.value()));
+        body += fmt::format("<tr><th>client constructed</th><td>{}</td></tr>\n", mqttClient ? "true" : "false");
+        if (mqttClient) {
+            body += fmt::format("<tr><th>client started</th><td>{}</td></tr>\n", mqttStarted ? "true" : "false");
+            body += fmt::format("<tr><th>client connected</th><td>{}</td></tr>\n", mqttConnected ? "true" : "false");
+        }
+        body += "</table>\n";
     }
-    body += "</table>\n";
 
     CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
     CALL_AND_EXIT_ON_ERROR(httpd_resp_send, req, body.data(), body.size())
@@ -224,7 +227,7 @@ esp_err_t webserver_root_handler(httpd_req_t *req)
 
 esp_err_t webserver_on_handler(httpd_req_t *req)
 {
-    if (!config::enable_lamp) {
+    if (!config::enable_lamp.value()) {
         ESP_LOGW(TAG, "lamp support not enabled!");
         CALL_AND_EXIT_ON_ERROR(httpd_resp_send_err, req, HTTPD_400_BAD_REQUEST, "lamp support not enabled!")
     }
@@ -233,7 +236,7 @@ esp_err_t webserver_on_handler(httpd_req_t *req)
     writeLamp(state);
 
     if (mqttConnected)
-        mqttVerbosePub(config::topic_lamp_status, state ? "ON" : "OFF", 0, 1);
+        mqttVerbosePub(config::topic_lamp_status.value(), state ? "ON" : "OFF", 0, 1);
 
     std::string_view body{"ON called..."};
     CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
@@ -244,7 +247,7 @@ esp_err_t webserver_on_handler(httpd_req_t *req)
 
 esp_err_t webserver_off_handler(httpd_req_t *req)
 {
-    if (!config::enable_lamp) {
+    if (!config::enable_lamp.value()) {
         ESP_LOGW(TAG, "lamp support not enabled!");
         CALL_AND_EXIT_ON_ERROR(httpd_resp_send_err, req, HTTPD_400_BAD_REQUEST, "lamp support not enabled!")
     }
@@ -253,7 +256,7 @@ esp_err_t webserver_off_handler(httpd_req_t *req)
     writeLamp(state);
 
     if (mqttConnected)
-        mqttVerbosePub(config::topic_lamp_status, state ? "ON" : "OFF", 0, 1);
+        mqttVerbosePub(config::topic_lamp_status.value(), state ? "ON" : "OFF", 0, 1);
 
     std::string_view body{"OFF called..."};
     CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
@@ -264,7 +267,7 @@ esp_err_t webserver_off_handler(httpd_req_t *req)
 
 esp_err_t webserver_toggle_handler(httpd_req_t *req)
 {
-    if (!config::enable_lamp) {
+    if (!config::enable_lamp.value()) {
         ESP_LOGW(TAG, "lamp support not enabled!");
         CALL_AND_EXIT_ON_ERROR(httpd_resp_send_err, req, HTTPD_400_BAD_REQUEST, "lamp support not enabled!")
     }
@@ -273,7 +276,7 @@ esp_err_t webserver_toggle_handler(httpd_req_t *req)
     writeLamp(state);
 
     if (mqttConnected)
-        mqttVerbosePub(config::topic_lamp_status, state ? "ON" : "OFF", 0, 1);
+        mqttVerbosePub(config::topic_lamp_status.value(), state ? "ON" : "OFF", 0, 1);
 
     std::string_view body{"TOGGLE called..."};
     CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")

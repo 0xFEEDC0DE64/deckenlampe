@@ -23,15 +23,15 @@ bool readSwitch();
 
 void init_switch()
 {
-    if (!config::enable_switch)
+    if (!config::enable_switch.value())
         return;
 
-    pinMode(config::pins_switch, INPUT);
+    pinMode(config::pins_switch.value(), INPUT);
 }
 
 void update_switch()
 {
-    if (!config::enable_switch)
+    if (!config::enable_switch.value())
         return;
 
     if (espchrono::ago(last_switch_readout) < 20ms)
@@ -49,14 +49,14 @@ void update_switch()
             switchState = newState;
 
             if (mqttConnected)
-                mqttVerbosePub(config::topic_switch_status, switchState ? "ON" : "OFF", 0, 1);
+                mqttVerbosePub(config::topic_switch_status.value(), switchState ? "ON" : "OFF", 0, 1);
 
-            if (config::enable_lamp) {
+            if (config::enable_lamp.value()) {
                 lampState = !lampState;
                 writeLamp(lampState);
 
                 if (mqttConnected)
-                    mqttVerbosePub(config::topic_lamp_status, lampState ? "ON" : "OFF", 0, 1);
+                    mqttVerbosePub(config::topic_lamp_status.value(), lampState ? "ON" : "OFF", 0, 1);
             }
         }
     }
@@ -65,8 +65,8 @@ void update_switch()
 namespace {
 bool readSwitch()
 {
-    bool state = digitalRead(config::pins_switch) == HIGH;
-    if (config::invert_switch)
+    bool state = digitalRead(config::pins_switch.value()) == HIGH;
+    if (config::invert_switch.value())
         state = !state;
     return state;
 }

@@ -28,11 +28,11 @@ void mqttEventHandler(void *event_handler_arg, esp_event_base_t event_base, int3
 
 void init_mqtt()
 {
-    if (!config::enable_mqtt)
+    if (!config::enable_mqtt.value())
         return;
 
     esp_mqtt_client_config_t mqtt_cfg = {
-        .uri = config::broker_url.data(),
+        .uri = config::broker_url.value().data(),
     };
 
     mqttClient = espcpputils::mqtt_client{&mqtt_cfg};
@@ -62,13 +62,19 @@ void init_mqtt()
 
 void update_mqtt()
 {
-    if (!config::enable_mqtt)
+    if (!config::enable_mqtt.value())
         return;
 }
 
 int mqttVerbosePub(std::string_view topic, std::string_view value, int qos, int retain)
 {
     ESP_LOGD(TAG, "topic=\"%.*s\" value=\"%.*s\"", topic.size(), topic.data(), value.size(), value.data());
+
+    if (!mqttClient) {
+        ESP_LOGE(TAG, "mqttClient not constructed!");
+        return -1;
+    }
+
     const auto pending_msg_id = mqttClient.publish(topic, value, qos, retain);
     if (pending_msg_id < 0)
         ESP_LOGE(TAG, "topic=\"%.*s\" value=\"%.*s\" failed pending_msg_id=%i", topic.size(), topic.data(), value.size(), value.data(), pending_msg_id);
@@ -104,43 +110,43 @@ void mqttEventHandler(void *event_handler_arg, esp_event_base_t event_base, int3
 
         mqttConnected = true;
 
-        if (config::enable_lamp) {
-            mqttVerbosePub(config::topic_lamp_availability, "online", 0, 1);
-            mqttVerbosePub(config::topic_lamp_status, lampState.load() ? "ON" : "OFF", 0, 1);
-            mqttClient.subscribe(config::topic_lamp_set, 0);
+        if (config::enable_lamp.value()) {
+            mqttVerbosePub(config::topic_lamp_availability.value(), "online", 0, 1);
+            mqttVerbosePub(config::topic_lamp_status.value(), lampState.load() ? "ON" : "OFF", 0, 1);
+            mqttClient.subscribe(config::topic_lamp_set.value(), 0);
         }
 
-        if (config::enable_switch) {
-            mqttVerbosePub(config::topic_switch_availability, "online", 0, 1);
-            mqttVerbosePub(config::topic_switch_status, switchState.load() ? "ON" : "OFF", 0, 1);
+        if (config::enable_switch.value()) {
+            mqttVerbosePub(config::topic_switch_availability.value(), "online", 0, 1);
+            mqttVerbosePub(config::topic_switch_status.value(), switchState.load() ? "ON" : "OFF", 0, 1);
         }
 
-        if (config::enable_dht) {
-            mqttVerbosePub(config::topic_dht11_availability, lastDhtValue ? "online" : "offline", 0, 1);
+        if (config::enable_dht.value()) {
+            mqttVerbosePub(config::topic_dht11_availability.value(), lastDhtValue ? "online" : "offline", 0, 1);
             if (lastDhtValue) {
-                if (mqttVerbosePub(config::topic_dht11_temperature, fmt::format("{:.1f}", lastDhtValue->temperature), 0, 1) >= 0)
+                if (mqttVerbosePub(config::topic_dht11_temperature.value(), fmt::format("{:.1f}", lastDhtValue->temperature), 0, 1) >= 0)
                     last_dht11_temperature_pub = espchrono::millis_clock::now();
-                if (mqttVerbosePub(config::topic_dht11_humidity, fmt::format("{:.1f}", lastDhtValue->humidity), 0, 1) >= 0)
+                if (mqttVerbosePub(config::topic_dht11_humidity.value(), fmt::format("{:.1f}", lastDhtValue->humidity), 0, 1) >= 0)
                     last_dht11_humidity_pub = espchrono::millis_clock::now();
             }
         }
 
-        if (config::enable_i2c && config::enable_tsl) {
-            mqttVerbosePub(config::topic_tsl2561_availability, lastTslValue ? "online" : "offline", 0, 1);
+        if (config::enable_i2c.value() && config::enable_tsl.value()) {
+            mqttVerbosePub(config::topic_tsl2561_availability.value(), lastTslValue ? "online" : "offline", 0, 1);
             if (lastTslValue) {
-                if (mqttVerbosePub(config::topic_tsl2561_lux, fmt::format("{:.1f}", lastTslValue->lux), 0, 1) >= 0)
+                if (mqttVerbosePub(config::topic_tsl2561_lux.value(), fmt::format("{:.1f}", lastTslValue->lux), 0, 1) >= 0)
                     last_tsl2561_lux_pub = espchrono::millis_clock::now();
             }
         }
 
-        if (config::enable_i2c && config::enable_bmp) {
-            mqttVerbosePub(config::topic_bmp085_availability, lastBmpValue ? "online" : "offline", 0, 1);
+        if (config::enable_i2c.value() && config::enable_bmp.value()) {
+            mqttVerbosePub(config::topic_bmp085_availability.value(), lastBmpValue ? "online" : "offline", 0, 1);
             if (lastBmpValue) {
-                if (mqttVerbosePub(config::topic_bmp085_pressure, fmt::format("{:.1f}", lastBmpValue->pressure), 0, 1) >= 0)
+                if (mqttVerbosePub(config::topic_bmp085_pressure.value(), fmt::format("{:.1f}", lastBmpValue->pressure), 0, 1) >= 0)
                     last_bmp085_pressure_pub = espchrono::millis_clock::now();
-                if (mqttVerbosePub(config::topic_bmp085_temperature, fmt::format("{:.1f}", lastBmpValue->temperature), 0, 1) >= 0)
+                if (mqttVerbosePub(config::topic_bmp085_temperature.value(), fmt::format("{:.1f}", lastBmpValue->temperature), 0, 1) >= 0)
                     last_bmp085_temperature_pub = espchrono::millis_clock::now();
-                if (mqttVerbosePub(config::topic_bmp085_altitude, fmt::format("{:.1f}", lastBmpValue->altitude), 0, 1) >= 0)
+                if (mqttVerbosePub(config::topic_bmp085_altitude.value(), fmt::format("{:.1f}", lastBmpValue->altitude), 0, 1) >= 0)
                     last_bmp085_altitude_pub = espchrono::millis_clock::now();
             }
         }
@@ -172,12 +178,12 @@ void mqttEventHandler(void *event_handler_arg, esp_event_base_t event_base, int3
 
         ESP_LOGI(TAG, "%s event_id=%s topic=%.*s data=%.*s", event_base, "MQTT_EVENT_DATA", topic.size(), topic.data(), value.size(), value.data());
 
-        if (topic == config::topic_lamp_set) {
-            if (config::enable_lamp) {
+        if (topic == config::topic_lamp_set.value()) {
+            if (config::enable_lamp.value()) {
                 bool newState = (lampState = (value == "ON"));
                 writeLamp(newState);
                 if (mqttConnected)
-                    mqttVerbosePub(config::topic_lamp_status, newState ? "ON" : "OFF", 0, 1);
+                    mqttVerbosePub(config::topic_lamp_status.value(), newState ? "ON" : "OFF", 0, 1);
             } else {
                 ESP_LOGW(TAG, "received lamp set without lamp support enabled!");
             }

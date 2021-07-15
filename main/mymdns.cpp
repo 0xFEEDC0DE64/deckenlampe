@@ -14,7 +14,7 @@ constexpr const char * const TAG = "MDNS";
 
 void init_mdns()
 {
-    if (!config::enable_mdns)
+    if (!config::enable_mdns.value())
         return;
 
     {
@@ -25,20 +25,20 @@ void init_mdns()
     }
 
     {
-        const auto result = mdns_hostname_set(config::hostname.data());
+        const auto result = mdns_hostname_set(config::hostname.value().c_str());
         ESP_LOG_LEVEL_LOCAL((result == ESP_OK ? ESP_LOG_INFO : ESP_LOG_ERROR), TAG, "mdns_hostname_set(): %s", esp_err_to_name(result));
         //if (result != ESP_OK)
         //    return result;
     }
 
     {
-        const auto result = mdns_instance_name_set(config::hostname.data());
+        const auto result = mdns_instance_name_set(config::hostname.value().c_str());
         ESP_LOG_LEVEL_LOCAL((result == ESP_OK ? ESP_LOG_INFO : ESP_LOG_ERROR), TAG, "mdns_instance_name_set(): %s", esp_err_to_name(result));
         //if (result != ESP_OK)
         //    return result;
     }
 
-    if (config::enable_webserver)
+    if (config::enable_webserver.value())
     {
         const auto result = mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
         ESP_LOG_LEVEL_LOCAL((result == ESP_OK ? ESP_LOG_INFO : ESP_LOG_ERROR), TAG, "mdns_service_add(): %s", esp_err_to_name(result));
@@ -49,7 +49,7 @@ void init_mdns()
 
 void update_mdns()
 {
-    if (!config::enable_mdns)
+    if (!config::enable_mdns.value())
         return;
 }
 } // namespace deckenlampe
