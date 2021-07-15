@@ -18,6 +18,7 @@
 #include "feature_tsl.h"
 #include "feature_bmp.h"
 #include "mymqtt.h"
+#include "espwifistack.h"
 
 namespace deckenlampe {
 httpd_handle_t httpdHandle;
@@ -120,6 +121,50 @@ esp_err_t webserver_root_handler(httpd_req_t *req)
             body += fmt::format("BMP085 Altitude: {:.1f} m<br/>\n", lastBmpValue->altitude);
         } else
             body += "BMP085 not available at the moment<br/>\n";
+    }
+
+    body += "<br/>\n"
+            "<h2>wifi scan result</h2>\n";
+
+    if (const auto &scanResult = wifi_stack::get_scan_result()) {
+        body += "<table border=\"1\">\n"
+                    "<thead>\n"
+                        "<tr>\n"
+                            "<th>ssid</th>\n"
+                            "<th>authmode</th>\n"
+                            "<th>pairwise_cipher</th>\n"
+                            "<th>group_cipher</th>\n"
+                            "<th>rssi</th>\n"
+                            "<th>channel</th>\n"
+                            "<th>bssid</th>\n"
+                        "</tr>\n"
+                    "</thead>\n"
+                    "<tbody>\n";
+
+        for (const auto &entry : scanResult->entries) {
+            body += fmt::format(
+                    "<tr>\n"
+                        "<td>{}</td>\n"
+                        "<td>{}</td>\n"
+                        "<td>{}</td>\n"
+                        "<td>{}</td>\n"
+                        "<td>{}</td>\n"
+                        "<td>{}</td>\n"
+                        "<td>{}</td>\n"
+                    "</tr>\n",
+                entry.ssid,
+                wifi_stack::toString(entry.authmode),
+                wifi_stack::toString(entry.pairwise_cipher),
+                wifi_stack::toString(entry.group_cipher),
+                entry.rssi,
+                entry.primary,
+                wifi_stack::toString(wifi_stack::mac_t{entry.bssid}));
+        }
+
+        body +=     "</tbody>\n"
+                "</table>\n";
+    } else {
+        body += "<span style=\"color: red;\">no wifi scan result at the moment!</span><br/>\n";
     }
 
     CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
