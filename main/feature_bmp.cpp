@@ -30,7 +30,7 @@ espchrono::millis_clock::time_point last_bmp085_readout;
 
 void init_bmp()
 {
-    if (!config::enable_bmp)
+    if (!config::enable_i2c || !config::enable_bmp)
         return;
 
     bmp.construct(10085);
@@ -55,7 +55,7 @@ void init_bmp()
 
 void update_bmp()
 {
-    if (!config::enable_bmp)
+    if (!config::enable_i2c || !config::enable_bmp)
         return;
 
     if (bmpInitialized) {
@@ -79,7 +79,7 @@ void update_bmp()
                 bmpValue.altitude = bmp->pressureToAltitude(seaLevelPressure, bmpValue.pressure);
                 ESP_LOGI(TAG, "read bmp Altitude: %.1f m", bmpValue.altitude);
 
-                if (mqttClient && mqttConnected) {
+                if (mqttConnected) {
                     if (!lastBmpValue)
                         mqttVerbosePub(config::topic_bmp085_availability, "online", 0, 1);
                     if (!lastBmpValue || espchrono::ago(last_bmp085_pressure_pub) >= config::valueUpdateInterval) {
@@ -109,7 +109,7 @@ void update_bmp()
     bmpOffline:
         if (lastBmpValue && espchrono::ago(lastBmpValue->timestamp) >= config::availableTimeoutTime) {
             ESP_LOGW(TAG, "bmp timeouted");
-            if (mqttClient && mqttConnected)
+            if (mqttConnected)
                 mqttVerbosePub(config::topic_bmp085_availability, "offline", 0, 1);
             lastBmpValue = std::nullopt;
         }

@@ -7,12 +7,16 @@
 #include "myconfig.h"
 #include "mymqtt.h"
 #include "feature_lamp.h"
+#include "espchrono.h"
+
+using namespace std::chrono_literals;
 
 namespace deckenlampe {
 std::atomic<bool> switchState;
 
 namespace {
 uint8_t switchDebounce{};
+espchrono::millis_clock::time_point last_switch_readout;
 
 bool readSwitch();
 } // namespace
@@ -30,6 +34,10 @@ void update_switch()
     if (!config::enable_switch)
         return;
 
+    if (espchrono::ago(last_switch_readout) < 20ms)
+        return;
+    last_switch_readout = espchrono::millis_clock::now();
+
     const auto newState = readSwitch();
     if (newState == switchState.load())
         switchDebounce = 0;
@@ -40,14 +48,14 @@ void update_switch()
 
             switchState = newState;
 
-            if (mqttClient && mqttConnected)
+            if (mqttConnected)
                 mqttVerbosePub(config::topic_switch_status, switchState ? "ON" : "OFF", 0, 1);
 
             if (config::enable_lamp) {
                 lampState = !lampState;
                 writeLamp(lampState);
 
-                if (mqttClient && mqttConnected)
+                if (mqttConnected)
                     mqttVerbosePub(config::topic_lamp_status, lampState ? "ON" : "OFF", 0, 1);
             }
         }

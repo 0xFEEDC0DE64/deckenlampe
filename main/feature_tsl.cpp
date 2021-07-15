@@ -28,7 +28,7 @@ espchrono::millis_clock::time_point last_tsl2561_readout;
 
 void init_tsl()
 {
-    if (!config::enable_tsl)
+    if (!config::enable_i2c || !config::enable_tsl)
         return;
 
     tsl.construct(TSL2561_ADDR_FLOAT, 12345);
@@ -69,7 +69,7 @@ void init_tsl()
 
 void update_tsl()
 {
-    if (!config::enable_tsl)
+    if (!config::enable_i2c || !config::enable_tsl)
         return;
 
     if (tslInitialized) {
@@ -87,7 +87,7 @@ void update_tsl()
                 };
                 ESP_LOGI(TAG, "read tsl: %.1f lux", tslValue.lux);
 
-                if (mqttClient && mqttConnected) {
+                if (mqttConnected) {
                     if (!lastTslValue)
                         mqttVerbosePub(config::topic_tsl2561_availability, "online", 0, 1);
                     if (!lastTslValue || espchrono::ago(last_tsl2561_lux_pub) >= config::valueUpdateInterval) {
@@ -111,7 +111,7 @@ void update_tsl()
     tslOffline:
         if (lastTslValue && espchrono::ago(lastTslValue->timestamp) >= config::availableTimeoutTime) {
             ESP_LOGW(TAG, "tsl timeouted");
-            if (mqttClient && mqttConnected)
+            if (mqttConnected)
                 mqttVerbosePub(config::topic_tsl2561_availability, "offline", 0, 1);
             lastTslValue = std::nullopt;
         }

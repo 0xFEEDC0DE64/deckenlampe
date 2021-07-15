@@ -26,6 +26,9 @@ httpd_handle_t httpdHandle;
 namespace {
 constexpr const char * const TAG = "WEBSERVER";
 
+template<typename T> T htmlentities(const T &val) { return val; } // TODO
+template<typename T> T htmlentities(T &&val) { return val; } // TODO
+
 esp_err_t webserver_root_handler(httpd_req_t *req);
 esp_err_t webserver_on_handler(httpd_req_t *req);
 esp_err_t webserver_off_handler(httpd_req_t *req);
@@ -35,6 +38,9 @@ esp_err_t webserver_reboot_handler(httpd_req_t *req);
 
 void init_webserver()
 {
+    if (!config::enable_webserver)
+        return;
+
     {
         httpd_config_t httpConfig HTTPD_DEFAULT_CONFIG();
 
@@ -61,6 +67,8 @@ void init_webserver()
 
 void update_webserver()
 {
+    if (!config::enable_webserver)
+        return;
 }
 
 namespace {
@@ -107,14 +115,14 @@ esp_err_t webserver_root_handler(httpd_req_t *req)
             body += "DHT11 not available at the moment<br/>\n";
     }
 
-    if (config::enable_tsl) {
+    if (config::enable_i2c && config::enable_tsl) {
         if (lastTslValue) {
             body += fmt::format("TSL2561 Brightness: {:.1f} lux<br/>\n", lastTslValue->lux);
         } else
             body += "TSL2561 not available at the moment<br/>\n";
     }
 
-    if (config::enable_bmp) {
+    if (config::enable_i2c && config::enable_bmp) {
         if (lastBmpValue) {
             body += fmt::format("BMP085 Pressure: {:.1f} lux<br/>\n", lastBmpValue->pressure);
             body += fmt::format("BMP085 Temperature: {:.1f} C<br/>\n", lastBmpValue->temperature);
@@ -124,9 +132,39 @@ esp_err_t webserver_root_handler(httpd_req_t *req)
     }
 
     body += "<br/>\n"
-            "<h2>wifi scan result</h2>\n";
+            "<h2>wifi</h2>\n"
+            "<table border=\"1\">\n";
+    body += fmt::format("<tr><th>state machine state</th><td>{}</td></tr>\n", wifi_stack::toString(wifi_stack::wifiStateMachineState));
+
+    {
+        const auto staStatus = wifi_stack::get_sta_status();
+        body += fmt::format("<tr><th>STA status</th><td>{}</td></tr>\n", wifi_stack::toString(staStatus));
+        if (staStatus == wifi_stack::WiFiStaStatus::WL_CONNECTED) {
+            if (const auto result = wifi_stack::get_sta_ap_info(); result) {
+                body += fmt::format("<tr><th>STA rssi</th><td>{}dB</td></tr>\n", result->rssi);
+                body += fmt::format("<tr><th>STA SSID</th><td>{}</td></tr>\n", htmlentities(result->ssid));
+                body += fmt::format("<tr><th>STA channel</th><td>{}</td></tr>\n", result->primary);
+                body += fmt::format("<tr><th>STA BSSID</th><td>{}</td></tr>\n", wifi_stack::toString(wifi_stack::mac_t{result->bssid}));
+            } else {
+                body += fmt::format("<tr><td colspan=\"2\">get_sta_ap_info() failed: {}</td></tr>\n", htmlentities(result.error()));
+            }
+
+            if (const auto result = wifi_stack::get_ip_info(TCPIP_ADAPTER_IF_STA)) {
+                body += fmt::format("<tr><th>STA ip</th><td>{}</td></tr>\n", wifi_stack::toString(result->ip));
+                body += fmt::format("<tr><th>STA netmask</th><td>{}</td></tr>\n", wifi_stack::toString(result->netmask));
+                body += fmt::format("<tr><th>STA gw</th><td>{}</td></tr>\n", wifi_stack::toString(result->gw));
+            } else {
+                body += fmt::format("<tr><td colspan=\"2\">get_ip_info() failed: {}</td></tr>\n", htmlentities(result.error()));
+            }
+        }
+    }
+
+    body += fmt::format("<tr><th>scan status</th><td>{}</td></tr>\n", wifi_stack::toString(wifi_stack::get_scan_status()));
+    body += "</table>\n"
+            "<h3>scan result</h3>\n";
 
     if (const auto &scanResult = wifi_stack::get_scan_result()) {
+        body += fmt::format("scan age: {}s<br />\n", std::chrono::round<std::chrono::seconds>(espchrono::ago(scanResult->finished)).count());
         body += "<table border=\"1\">\n"
                     "<thead>\n"
                         "<tr>\n"
@@ -152,7 +190,7 @@ esp_err_t webserver_root_handler(httpd_req_t *req)
                         "<td>{}</td>\n"
                         "<td>{}</td>\n"
                     "</tr>\n",
-                entry.ssid,
+                htmlentities(entry.ssid),
                 wifi_stack::toString(entry.authmode),
                 wifi_stack::toString(entry.pairwise_cipher),
                 wifi_stack::toString(entry.group_cipher),
@@ -166,6 +204,17 @@ esp_err_t webserver_root_handler(httpd_req_t *req)
     } else {
         body += "<span style=\"color: red;\">no wifi scan result at the moment!</span><br/>\n";
     }
+
+    body += "<br/>\n"
+            "<h2>MQTT</h2>\n"
+            "<table border=\"1\">\n";
+    body += fmt::format("<tr><th>client url</th><td>{}</td></tr>\n", htmlentities(config::broker_url));
+    body += fmt::format("<tr><th>client constructed</th><td>{}</td></tr>\n", mqttClient ? "true" : "false");
+    if (mqttClient) {
+        body += fmt::format("<tr><th>client started</th><td>{}</td></tr>\n", mqttStarted ? "true" : "false");
+        body += fmt::format("<tr><th>client connected</th><td>{}</td></tr>\n", mqttConnected ? "true" : "false");
+    }
+    body += "</table>\n";
 
     CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
     CALL_AND_EXIT_ON_ERROR(httpd_resp_send, req, body.data(), body.size())
@@ -183,7 +232,7 @@ esp_err_t webserver_on_handler(httpd_req_t *req)
     const bool state = (lampState = true);
     writeLamp(state);
 
-    if (mqttClient && mqttConnected)
+    if (mqttConnected)
         mqttVerbosePub(config::topic_lamp_status, state ? "ON" : "OFF", 0, 1);
 
     std::string_view body{"ON called..."};
@@ -203,7 +252,7 @@ esp_err_t webserver_off_handler(httpd_req_t *req)
     const bool state = (lampState = false);
     writeLamp(state);
 
-    if (mqttClient && mqttConnected)
+    if (mqttConnected)
         mqttVerbosePub(config::topic_lamp_status, state ? "ON" : "OFF", 0, 1);
 
     std::string_view body{"OFF called..."};
@@ -223,7 +272,7 @@ esp_err_t webserver_toggle_handler(httpd_req_t *req)
     const bool state = (lampState = !lampState);
     writeLamp(state);
 
-    if (mqttClient && mqttConnected)
+    if (mqttConnected)
         mqttVerbosePub(config::topic_lamp_status, state ? "ON" : "OFF", 0, 1);
 
     std::string_view body{"TOGGLE called..."};

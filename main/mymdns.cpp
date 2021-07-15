@@ -14,6 +14,9 @@ constexpr const char * const TAG = "MDNS";
 
 void init_mdns()
 {
+    if (!config::enable_mdns)
+        return;
+
     {
         const auto result = mdns_init();
         ESP_LOG_LEVEL_LOCAL((result == ESP_OK ? ESP_LOG_INFO : ESP_LOG_ERROR), TAG, "mdns_init(): %s", esp_err_to_name(result));
@@ -35,6 +38,7 @@ void init_mdns()
         //    return result;
     }
 
+    if (config::enable_webserver)
     {
         const auto result = mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
         ESP_LOG_LEVEL_LOCAL((result == ESP_OK ? ESP_LOG_INFO : ESP_LOG_ERROR), TAG, "mdns_service_add(): %s", esp_err_to_name(result));
@@ -45,6 +49,7 @@ void init_mdns()
 
 void update_mdns()
 {
-
+    if (!config::enable_mdns)
+        return;
 }
 } // namespace deckenlampe

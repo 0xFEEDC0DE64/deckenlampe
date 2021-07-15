@@ -8,8 +8,9 @@
 #include "wrappers/mqtt_client.h"
 
 namespace deckenlampe {
-extern std::atomic<bool> mqttConnected;
 extern espcpputils::mqtt_client mqttClient;
+extern std::atomic<bool> mqttStarted;
+extern std::atomic<bool> mqttConnected;
 
 void init_mqtt();
 void update_mqtt();

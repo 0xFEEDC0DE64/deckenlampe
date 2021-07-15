@@ -20,6 +20,11 @@ constexpr const std::string_view sta_key = "Passwort_123";
 constexpr const std::string_view ap_ssid = "deckenlampe1";
 constexpr const std::string_view ap_key = "Passwort_123";
 
+constexpr const bool enable_webserver = true;
+
+constexpr const bool enable_mdns = true;
+
+constexpr const bool enable_mqtt = true;
 constexpr const std::string_view broker_url = "mqtt://192.168.0.2/";
 
 constexpr const bool enable_lamp = true;
@@ -42,6 +47,7 @@ constexpr const std::string_view topic_dht11_availability = "dahoam/wohnzimmer/d
 constexpr const std::string_view topic_dht11_temperature = "dahoam/wohnzimmer/dht11_1/temperature";
 constexpr const std::string_view topic_dht11_humidity = "dahoam/wohnzimmer/dht11_1/humidity";
 
+constexpr const bool enable_i2c = true;
 constexpr const gpio_num_t pins_sda = GPIO_NUM_16;
 constexpr const gpio_num_t pins_scl = GPIO_NUM_17;
 

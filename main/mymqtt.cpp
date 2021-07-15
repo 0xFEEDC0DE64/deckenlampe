@@ -16,8 +16,9 @@
 #include "cppmacros.h"
 
 namespace deckenlampe {
-std::atomic<bool> mqttConnected;
 espcpputils::mqtt_client mqttClient;
+std::atomic<bool> mqttStarted;
+std::atomic<bool> mqttConnected;
 
 namespace {
 constexpr const char * const TAG = "MQTT";
@@ -27,6 +28,9 @@ void mqttEventHandler(void *event_handler_arg, esp_event_base_t event_base, int3
 
 void init_mqtt()
 {
+    if (!config::enable_mqtt)
+        return;
+
     esp_mqtt_client_config_t mqtt_cfg = {
         .uri = config::broker_url.data(),
     };
@@ -42,18 +46,24 @@ void init_mqtt()
     {
         const auto result = mqttClient.register_event(MQTT_EVENT_ANY, mqttEventHandler, NULL);
         ESP_LOG_LEVEL_LOCAL((result == ESP_OK ? ESP_LOG_INFO : ESP_LOG_ERROR), TAG, "esp_mqtt_client_register_event(): %s", esp_err_to_name(result));
-        //if (result != ESP_OK)
-        //    return result;
+        if (result != ESP_OK)
+            return;
     }
 
-    const auto result = mqttClient.start();
-    ESP_LOG_LEVEL_LOCAL((result == ESP_OK ? ESP_LOG_INFO : ESP_LOG_ERROR), TAG, "esp_mqtt_client_start(): %s", esp_err_to_name(result));
-    //if (result != ESP_OK)
-    //    return result;
+    {
+        const auto result = mqttClient.start();
+        ESP_LOG_LEVEL_LOCAL((result == ESP_OK ? ESP_LOG_INFO : ESP_LOG_ERROR), TAG, "esp_mqtt_client_start(): %s", esp_err_to_name(result));
+        if (result != ESP_OK)
+            return;
+    }
+
+    mqttStarted = true;
 }
 
 void update_mqtt()
 {
+    if (!config::enable_mqtt)
+        return;
 }
 
 int mqttVerbosePub(std::string_view topic, std::string_view value, int qos, int retain)
@@ -115,7 +125,7 @@ void mqttEventHandler(void *event_handler_arg, esp_event_base_t event_base, int3
             }
         }
 
-        if (config::enable_tsl) {
+        if (config::enable_i2c && config::enable_tsl) {
             mqttVerbosePub(config::topic_tsl2561_availability, lastTslValue ? "online" : "offline", 0, 1);
             if (lastTslValue) {
                 if (mqttVerbosePub(config::topic_tsl2561_lux, fmt::format("{:.1f}", lastTslValue->lux), 0, 1) >= 0)
@@ -123,7 +133,7 @@ void mqttEventHandler(void *event_handler_arg, esp_event_base_t event_base, int3
             }
         }
 
-        if (config::enable_bmp) {
+        if (config::enable_i2c && config::enable_bmp) {
             mqttVerbosePub(config::topic_bmp085_availability, lastBmpValue ? "online" : "offline", 0, 1);
             if (lastBmpValue) {
                 if (mqttVerbosePub(config::topic_bmp085_pressure, fmt::format("{:.1f}", lastBmpValue->pressure), 0, 1) >= 0)
@@ -166,7 +176,7 @@ void mqttEventHandler(void *event_handler_arg, esp_event_base_t event_base, int3
             if (config::enable_lamp) {
                 bool newState = (lampState = (value == "ON"));
                 writeLamp(newState);
-                if (mqttClient && mqttConnected)
+                if (mqttConnected)
                     mqttVerbosePub(config::topic_lamp_status, newState ? "ON" : "OFF", 0, 1);
             } else {
                 ESP_LOGW(TAG, "received lamp set without lamp support enabled!");

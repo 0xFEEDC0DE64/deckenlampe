@@ -1,9 +1,5 @@
 #include "sdkconfig.h"
 
-// system includes
-#include <chrono>
-#include <atomic>
-
 // esp-idf includes
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
@@ -17,11 +13,7 @@
 #include <esp_system.h>
 
 // Arduino includes
-#include <Arduino.h>
 #include <Wire.h>
-
-// 3rdparty lib includes
-#include <fmt/core.h>
 
 // local includes
 #include "tickchrono.h"
@@ -35,6 +27,7 @@
 #include "feature_dht.h"
 #include "feature_tsl.h"
 #include "feature_bmp.h"
+#include "espchrono.h"
 
 using namespace std::chrono_literals;
 
@@ -88,6 +81,7 @@ extern "C" void app_main()
 
     init_switch();
 
+    if (config::enable_i2c)
     {
         ESP_LOGI(TAG, "calling Wire.begin()...");
         const auto result = Wire.begin(config::pins_sda, config::pins_scl);
