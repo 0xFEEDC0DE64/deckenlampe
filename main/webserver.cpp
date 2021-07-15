@@ -19,6 +19,11 @@
 #include "feature_bmp.h"
 #include "mymqtt.h"
 #include "espwifistack.h"
+#include "espcppmacros.h"
+#include "espstrutils.h"
+#include "strutils.h"
+#include "espchrono.h"
+#include "numberparsing.h"
 
 namespace deckenlampe {
 httpd_handle_t httpdHandle;
@@ -73,25 +78,23 @@ void update_webserver()
 }
 
 namespace {
-#define CALL_AND_EXIT_ON_ERROR(METHOD, ...) \
-    if (const auto result = METHOD(__VA_ARGS__); result != ESP_OK) \
-    { \
-        ESP_LOGE(TAG, "%s() failed with %s", #METHOD, esp_err_to_name(result)); \
-        return result; \
-    }
-
-#define CALL_AND_EXIT(METHOD, ...) \
-    if (const auto result = METHOD(__VA_ARGS__); result != ESP_OK) \
-    { \
-        ESP_LOGE(TAG, "%s() failed with %s", #METHOD, esp_err_to_name(result)); \
-        return result; \
-    } \
-    else \
-        return result;
+esp_err_t webserver_dht_display(httpd_req_t *req, std::string &body);
+esp_err_t webserver_tsl_display(httpd_req_t *req, std::string &body);
+esp_err_t webserver_bmp_display(httpd_req_t *req, std::string &body);
+esp_err_t webserver_wifi_display(httpd_req_t *req, std::string &body);
+esp_err_t webserver_mqtt_display(httpd_req_t *req, std::string &body);
+esp_err_t webserver_config_display(httpd_req_t *req, std::string &body, std::string_view query);
 
 esp_err_t webserver_root_handler(httpd_req_t *req)
 {
-    std::string body = "this is work in progress...<br/>\n";
+    std::string query;
+
+    if (const size_t queryLength = httpd_req_get_url_query_len(req)) {
+        query.resize(queryLength);
+        CALL_AND_EXIT_ON_ERROR(httpd_req_get_url_query_str, req, query.data(), query.size() + 1)
+    }
+
+    std::string body;
 
     if (config::enable_lamp.value()) {
         body += "<a href=\"/on\">on</a><br/>\n"
@@ -108,6 +111,34 @@ esp_err_t webserver_root_handler(httpd_req_t *req)
     if (config::enable_switch.value())
         body += fmt::format("Switch: {}<br/>\n", switchState ? "ON" : "OFF");
 
+    if (const auto result = webserver_dht_display(req, body); result != ESP_OK)
+        return result;
+
+    if (const auto result = webserver_tsl_display(req, body); result != ESP_OK)
+        return result;
+
+    if (const auto result = webserver_bmp_display(req, body); result != ESP_OK)
+        return result;
+
+    body += "<br/>\n";
+
+    if (const auto result = webserver_wifi_display(req, body); result != ESP_OK)
+        return result;
+
+    if (const auto result = webserver_mqtt_display(req, body); result != ESP_OK)
+        return result;
+
+    if (const auto result = webserver_config_display(req, body, query); result != ESP_OK)
+        return result;
+
+    CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
+    CALL_AND_EXIT_ON_ERROR(httpd_resp_send, req, body.data(), body.size())
+
+    return ESP_OK;
+}
+
+esp_err_t webserver_dht_display(httpd_req_t *req, std::string &body)
+{
     if (config::enable_dht.value()) {
         if (lastDhtValue) {
             body += fmt::format("DHT11 Temperature: {:.1f} C<br/>\n", lastDhtValue->temperature);
@@ -116,6 +147,11 @@ esp_err_t webserver_root_handler(httpd_req_t *req)
             body += "DHT11 not available at the moment<br/>\n";
     }
 
+    return ESP_OK;
+}
+
+esp_err_t webserver_tsl_display(httpd_req_t *req, std::string &body)
+{
     if (config::enable_i2c.value() && config::enable_tsl.value()) {
         if (lastTslValue) {
             body += fmt::format("TSL2561 Brightness: {:.1f} lux<br/>\n", lastTslValue->lux);
@@ -123,6 +159,11 @@ esp_err_t webserver_root_handler(httpd_req_t *req)
             body += "TSL2561 not available at the moment<br/>\n";
     }
 
+    return ESP_OK;
+}
+
+esp_err_t webserver_bmp_display(httpd_req_t *req, std::string &body)
+{
     if (config::enable_i2c.value() && config::enable_bmp.value()) {
         if (lastBmpValue) {
             body += fmt::format("BMP085 Pressure: {:.1f} lux<br/>\n", lastBmpValue->pressure);
@@ -132,8 +173,12 @@ esp_err_t webserver_root_handler(httpd_req_t *req)
             body += "BMP085 not available at the moment<br/>\n";
     }
 
-    body += "<br/>\n"
-            "<h2>wifi</h2>\n"
+    return ESP_OK;
+}
+
+esp_err_t webserver_wifi_display(httpd_req_t *req, std::string &body)
+{
+    body += "<h2>wifi</h2>\n"
             "<table border=\"1\">\n";
     body += fmt::format("<tr><th>state machine state</th><td>{}</td></tr>\n", wifi_stack::toString(wifi_stack::wifiStateMachineState));
 
@@ -182,15 +227,15 @@ esp_err_t webserver_root_handler(httpd_req_t *req)
 
         for (const auto &entry : scanResult->entries) {
             body += fmt::format(
-                    "<tr>\n"
-                        "<td>{}</td>\n"
-                        "<td>{}</td>\n"
-                        "<td>{}</td>\n"
-                        "<td>{}</td>\n"
-                        "<td>{}</td>\n"
-                        "<td>{}</td>\n"
-                        "<td>{}</td>\n"
-                    "</tr>\n",
+                "<tr>\n"
+                    "<td>{}</td>\n"
+                    "<td>{}</td>\n"
+                    "<td>{}</td>\n"
+                    "<td>{}</td>\n"
+                    "<td>{}</td>\n"
+                    "<td>{}</td>\n"
+                    "<td>{}</td>\n"
+                "</tr>\n",
                 htmlentities(entry.ssid),
                 wifi_stack::toString(entry.authmode),
                 wifi_stack::toString(entry.pairwise_cipher),
@@ -206,6 +251,11 @@ esp_err_t webserver_root_handler(httpd_req_t *req)
         body += "<span style=\"color: red;\">no wifi scan result at the moment!</span><br/>\n";
     }
 
+    return ESP_OK;
+}
+
+esp_err_t webserver_mqtt_display(httpd_req_t *req, std::string &body)
+{
     if (config::enable_mqtt.value()) {
         body += "<br/>\n"
                 "<h2>MQTT</h2>\n"
@@ -219,8 +269,198 @@ esp_err_t webserver_root_handler(httpd_req_t *req)
         body += "</table>\n";
     }
 
-    CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
-    CALL_AND_EXIT_ON_ERROR(httpd_resp_send, req, body.data(), body.size())
+    return ESP_OK;
+}
+
+template<typename T>
+std::string webserver_form_for_config(httpd_req_t *req, ConfigWrapper<T> &config, std::string_view query)
+{
+    return "<span style=\"color: red;\">form not implemented</span>";
+}
+
+template<>
+std::string webserver_form_for_config(httpd_req_t *req, ConfigWrapper<bool> &config, std::string_view query)
+{
+    std::string str;
+
+    {
+        char valueBufEncoded[256];
+        if (const auto result = httpd_query_key_value(query.data(), config.nvsKey(), valueBufEncoded, 256); result == ESP_OK) {
+            char valueBuf[257];
+            espcpputils::urldecode(valueBuf, valueBufEncoded);
+
+            std::string_view value{valueBuf};
+
+            if (value == "true" || value == "false") {
+                if (const auto result = config.writeToFlash(value == "true"))
+                    str += "<span style=\"color: green;\">Successfully saved</span>";
+                else
+                    str += fmt::format("<span style=\"color: red;\">Error while saving: {}</span>", htmlentities(result.error()));
+            } else {
+                str += fmt::format("<span style=\"color: red;\">Error while saving: Invalid value \"{}\"</span>", htmlentities(value));
+            }
+        } else if (result != ESP_ERR_NOT_FOUND) {
+            ESP_LOGE(TAG, "httpd_query_key_value() %s failed with %s", config.nvsKey(), esp_err_to_name(result));
+            str += fmt::format("<span style=\"color: red;\">Error while saving: httpd_query_key_value() failed with {}</span>", esp_err_to_name(result));
+        }
+    }
+
+    str += fmt::format("<form>"
+                           "<input type=\"hidden\" name=\"{}\" value=\"false\" />"
+                           "<input type=\"checkbox\" name=\"{}\" value=\"true\"{} />"
+                           "<button type=\"submit\">Save</button>"
+                       "</form>",
+                       htmlentities(config.nvsKey()),
+                       htmlentities(config.nvsKey()),
+                       config.value() ? " checked" : "");
+
+    return str;
+}
+
+template<>
+std::string webserver_form_for_config(httpd_req_t *req, ConfigWrapper<std::string> &config, std::string_view query)
+{
+    std::string str;
+
+    {
+        char valueBufEncoded[256];
+        if (const auto result = httpd_query_key_value(query.data(), config.nvsKey(), valueBufEncoded, 256); result == ESP_OK) {
+            char valueBuf[257];
+            espcpputils::urldecode(valueBuf, valueBufEncoded);
+
+            if (const auto result = config.writeToFlash(valueBuf))
+                str += "<span style=\"color: green;\">Successfully saved</span>";
+            else
+                str += fmt::format("<span style=\"color: red;\">Error while saving: {}</span>", htmlentities(result.error()));
+        } else if (result != ESP_ERR_NOT_FOUND) {
+            ESP_LOGE(TAG, "httpd_query_key_value() %s failed with %s", config.nvsKey(), esp_err_to_name(result));
+            str += fmt::format("<span style=\"color: red;\">Error while saving: httpd_query_key_value() failed with {}</span>", esp_err_to_name(result));
+        }
+    }
+
+    str += fmt::format("<form>"
+                           "<input type=\"text\" name=\"{}\" value=\"{}\" />"
+                           "<button type=\"submit\">Save</button>"
+                       "</form>",
+                       htmlentities(config.nvsKey()),
+                       htmlentities(config.value()));
+
+    return str;
+}
+
+template<>
+std::string webserver_form_for_config(httpd_req_t *req, ConfigWrapper<gpio_num_t> &config, std::string_view query)
+{
+    std::string str;
+
+    {
+        char valueBufEncoded[256];
+        if (const auto result = httpd_query_key_value(query.data(), config.nvsKey(), valueBufEncoded, 256); result == ESP_OK) {
+            char valueBuf[257];
+            espcpputils::urldecode(valueBuf, valueBufEncoded);
+
+            std::string_view value{valueBuf};
+
+            if (auto parsed = cpputils::fromString<std::underlying_type_t<gpio_num_t>>(value)) {
+                if (const auto result = config.writeToFlash(gpio_num_t(*parsed)))
+                    str += "<span style=\"color: green;\">Successfully saved</span>";
+                else
+                    str += fmt::format("<span style=\"color: red;\">Error while saving: {}</span>", htmlentities(result.error()));
+            } else {
+                str += fmt::format("<span style=\"color: red;\">Error while saving: Invalid value \"{}\"</span>", htmlentities(value));
+            }
+        } else if (result != ESP_ERR_NOT_FOUND) {
+            ESP_LOGE(TAG, "httpd_query_key_value() %s failed with %s", config.nvsKey(), esp_err_to_name(result));
+        }
+    }
+
+    str += fmt::format("<form>"
+                       "<input type=\"number\" name=\"{}\" value=\"{}\" />"
+                       "<button type=\"submit\">Save</button>"
+                       "</form>",
+                       htmlentities(config.nvsKey()),
+                       config.value());
+
+    return str;
+}
+
+template<>
+std::string webserver_form_for_config(httpd_req_t *req, ConfigWrapper<espchrono::seconds32> &config, std::string_view query)
+{
+    std::string str;
+
+    {
+        char valueBufEncoded[256];
+        if (const auto result = httpd_query_key_value(query.data(), config.nvsKey(), valueBufEncoded, 256); result == ESP_OK) {
+            char valueBuf[257];
+            espcpputils::urldecode(valueBuf, valueBufEncoded);
+
+            std::string_view value{valueBuf};
+
+            if (auto parsed = cpputils::fromString<espchrono::seconds32::rep>(value)) {
+                if (const auto result = config.writeToFlash(espchrono::seconds32(*parsed)))
+                    str += "<span style=\"color: green;\">Successfully saved</span>";
+                else
+                    str += fmt::format("<span style=\"color: red;\">Error while saving: {}</span>", htmlentities(result.error()));
+            } else {
+                str += fmt::format("<span style=\"color: red;\">Error while saving: Invalid value \"{}\"</span>", htmlentities(value));
+            }
+        } else if (result != ESP_ERR_NOT_FOUND) {
+            ESP_LOGE(TAG, "httpd_query_key_value() %s failed with %s", config.nvsKey(), esp_err_to_name(result));
+        }
+    }
+
+    str += fmt::format("<form>"
+                       "<input type=\"number\" name=\"{}\" value=\"{}\" />"
+                       "<button type=\"submit\">Save</button>"
+                       "</form>",
+                       htmlentities(config.nvsKey()),
+                       config.value().count());
+
+    return str;
+}
+
+esp_err_t webserver_config_display(httpd_req_t *req, std::string &body, std::string_view query)
+{
+    body += "<br/>\n"
+            "<h2>config</h2>\n"
+            "<table border=\"1\">\n"
+                "<thead>\n"
+                    "<tr>\n"
+                        "<th>name</th>\n"
+                        //"<th>current value</th>\n"
+                        "<th>set new value</th>\n"
+                        "<th>value in flash</th>\n"
+                    "</tr>\n"
+                "</thead>\n"
+                "<tbody>\n";
+
+    config::foreachConfig([&](auto &config){
+        using cpputils::toString;
+        using espchrono::toString;
+
+        body += fmt::format("<tr>\n"
+                                "<th>{}</th>\n"
+                                //"<td>{}</td>\n"
+                                "<td>{}</td>\n"
+                                "<td>{}</td>\n"
+                            "</tr>\n",
+                            htmlentities(config.name()),
+                            //htmlentities(toString(config.value())),
+                            webserver_form_for_config(req, config, query),
+                            [&]() -> std::string {
+                                if (const auto result = config.readFromFlash()) {
+                                    if (*result)
+                                        return htmlentities(toString(**result));
+                                    else
+                                        return "<span style=\"color: grey;\">not set</span>";
+                                } else
+                                    return fmt::format("<span style=\"color: red\">{}</span>", htmlentities(result.error()));
+                            }());
+    });
+
+    body +=     "</tbody>\n"
+            "</table>\n";
 
     return ESP_OK;
 }

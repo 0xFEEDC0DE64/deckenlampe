@@ -13,6 +13,7 @@ set(headers
     mymdns.h
     mymqtt.h
     mywifi.h
+    nvswrappers.h
     webserver.h
 )
 

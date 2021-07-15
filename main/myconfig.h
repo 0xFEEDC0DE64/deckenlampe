@@ -66,7 +66,50 @@ extern ConfigWrapper<std::string> topic_bmp085_altitude;
 
 extern ConfigWrapper<espchrono::seconds32> availableTimeoutTime;
 extern ConfigWrapper<espchrono::seconds32> valueUpdateInterval;
-} // namespace configs
+
+template<typename T>
+void foreachConfig(T &&callback)
+{
+    callback(hostname);
+    callback(sta_ssid);
+    callback(sta_key);
+    callback(ap_ssid);
+    callback(ap_key);
+    callback(enable_webserver);
+    callback(enable_mdns);
+    callback(enable_mqtt);
+    callback(broker_url);
+    callback(enable_lamp);
+    callback(pins_lamp);
+    callback(invertLamp);
+    callback(topic_lamp_availability);
+    callback(topic_lamp_status);
+    callback(topic_lamp_set);
+    callback(enable_switch);
+    callback(pins_switch);
+    callback(invert_switch);
+    callback(topic_switch_availability);
+    callback(topic_switch_status);
+    callback(enable_dht);
+    callback(pins_dht);
+    callback(topic_dht11_availability);
+    callback(topic_dht11_temperature);
+    callback(topic_dht11_humidity);
+    callback(enable_i2c);
+    callback(pins_sda);
+    callback(pins_scl);
+    callback(enable_tsl);
+    callback(topic_tsl2561_availability);
+    callback(topic_tsl2561_lux);
+    callback(enable_bmp);
+    callback(topic_bmp085_availability);
+    callback(topic_bmp085_pressure);
+    callback(topic_bmp085_temperature);
+    callback(topic_bmp085_altitude);
+    callback(availableTimeoutTime);
+    callback(valueUpdateInterval);
+}
+} // namespace config
 
 void init_config();
 void update_config();
