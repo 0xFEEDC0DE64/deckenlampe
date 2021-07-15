@@ -1,0 +1,194 @@
+#include "mymqtt.h"
+
+// esp-idf includes
+#include <esp_log.h>
+
+// 3rdparty lib includes
+#include <fmt/core.h>
+
+// local includes
+#include "myconfig.h"
+#include "feature_lamp.h"
+#include "feature_switch.h"
+#include "feature_dht.h"
+#include "feature_tsl.h"
+#include "feature_bmp.h"
+#include "cppmacros.h"
+
+namespace deckenlampe {
+std::atomic<bool> mqttConnected;
+espcpputils::mqtt_client mqttClient;
+
+namespace {
+constexpr const char * const TAG = "MQTT";
+
+void mqttEventHandler(void *event_handler_arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
+} // namespace
+
+void init_mqtt()
+{
+    esp_mqtt_client_config_t mqtt_cfg = {
+        .uri = config::broker_url.data(),
+    };
+
+    mqttClient = espcpputils::mqtt_client{&mqtt_cfg};
+
+    if (!mqttClient)
+    {
+        ESP_LOGE(TAG, "error while initializing mqtt client!");
+        return;
+    }
+
+    {
+        const auto result = mqttClient.register_event(MQTT_EVENT_ANY, mqttEventHandler, NULL);
+        ESP_LOG_LEVEL_LOCAL((result == ESP_OK ? ESP_LOG_INFO : ESP_LOG_ERROR), TAG, "esp_mqtt_client_register_event(): %s", esp_err_to_name(result));
+        //if (result != ESP_OK)
+        //    return result;
+    }
+
+    const auto result = mqttClient.start();
+    ESP_LOG_LEVEL_LOCAL((result == ESP_OK ? ESP_LOG_INFO : ESP_LOG_ERROR), TAG, "esp_mqtt_client_start(): %s", esp_err_to_name(result));
+    //if (result != ESP_OK)
+    //    return result;
+}
+
+void update_mqtt()
+{
+}
+
+int mqttVerbosePub(std::string_view topic, std::string_view value, int qos, int retain)
+{
+    ESP_LOGD(TAG, "topic=\"%.*s\" value=\"%.*s\"", topic.size(), topic.data(), value.size(), value.data());
+    const auto pending_msg_id = mqttClient.publish(topic, value, qos, retain);
+    if (pending_msg_id < 0)
+        ESP_LOGE(TAG, "topic=\"%.*s\" value=\"%.*s\" failed pending_msg_id=%i", topic.size(), topic.data(), value.size(), value.data(), pending_msg_id);
+    else
+        ESP_LOGI(TAG, "topic=\"%.*s\" value=\"%.*s\" succeeded pending_msg_id=%i", topic.size(), topic.data(), value.size(), value.data(), pending_msg_id);
+    return pending_msg_id;
+}
+
+namespace {
+void mqttEventHandler(void *event_handler_arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
+{
+    CPP_UNUSED(event_handler_arg)
+
+    const esp_mqtt_event_t *data = reinterpret_cast<const esp_mqtt_event_t *>(event_data);
+
+    switch (esp_mqtt_event_id_t(event_id)) {
+    case MQTT_EVENT_ERROR:
+        ESP_LOGE(TAG, "%s event_id=%s", event_base, "MQTT_EVENT_ERROR");
+
+        //        ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
+        //        if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT)
+        //        {
+        //            log_error_if_nonzero("reported from esp-tls", event->error_handle->esp_tls_last_esp_err);
+        //            log_error_if_nonzero("reported from tls stack", event->error_handle->esp_tls_stack_err);
+        //            log_error_if_nonzero("captured as transport's socket errno",  event->error_handle->esp_transport_sock_errno);
+        //            ESP_LOGI(TAG, "Last errno string (%s)", strerror(event->error_handle->esp_transport_sock_errno));
+
+        //        }
+        break;
+
+    case MQTT_EVENT_CONNECTED:
+        ESP_LOGI(TAG, "%s event_id=%s", event_base, "MQTT_EVENT_CONNECTED");
+
+        mqttConnected = true;
+
+        if (config::enable_lamp) {
+            mqttVerbosePub(config::topic_lamp_availability, "online", 0, 1);
+            mqttVerbosePub(config::topic_lamp_status, lampState.load() ? "ON" : "OFF", 0, 1);
+            mqttClient.subscribe(config::topic_lamp_set, 0);
+        }
+
+        if (config::enable_switch) {
+            mqttVerbosePub(config::topic_switch_availability, "online", 0, 1);
+            mqttVerbosePub(config::topic_switch_status, switchState.load() ? "ON" : "OFF", 0, 1);
+        }
+
+        if (config::enable_dht) {
+            mqttVerbosePub(config::topic_dht11_availability, lastDhtValue ? "online" : "offline", 0, 1);
+            if (lastDhtValue) {
+                if (mqttVerbosePub(config::topic_dht11_temperature, fmt::format("{:.1f}", lastDhtValue->temperature), 0, 1) >= 0)
+                    last_dht11_temperature_pub = espchrono::millis_clock::now();
+                if (mqttVerbosePub(config::topic_dht11_humidity, fmt::format("{:.1f}", lastDhtValue->humidity), 0, 1) >= 0)
+                    last_dht11_humidity_pub = espchrono::millis_clock::now();
+            }
+        }
+
+        if (config::enable_tsl) {
+            mqttVerbosePub(config::topic_tsl2561_availability, lastTslValue ? "online" : "offline", 0, 1);
+            if (lastTslValue) {
+                if (mqttVerbosePub(config::topic_tsl2561_lux, fmt::format("{:.1f}", lastTslValue->lux), 0, 1) >= 0)
+                    last_tsl2561_lux_pub = espchrono::millis_clock::now();
+            }
+        }
+
+        if (config::enable_bmp) {
+            mqttVerbosePub(config::topic_bmp085_availability, lastBmpValue ? "online" : "offline", 0, 1);
+            if (lastBmpValue) {
+                if (mqttVerbosePub(config::topic_bmp085_pressure, fmt::format("{:.1f}", lastBmpValue->pressure), 0, 1) >= 0)
+                    last_bmp085_pressure_pub = espchrono::millis_clock::now();
+                if (mqttVerbosePub(config::topic_bmp085_temperature, fmt::format("{:.1f}", lastBmpValue->temperature), 0, 1) >= 0)
+                    last_bmp085_temperature_pub = espchrono::millis_clock::now();
+                if (mqttVerbosePub(config::topic_bmp085_altitude, fmt::format("{:.1f}", lastBmpValue->altitude), 0, 1) >= 0)
+                    last_bmp085_altitude_pub = espchrono::millis_clock::now();
+            }
+        }
+
+        break;
+
+    case MQTT_EVENT_DISCONNECTED:
+        ESP_LOGI(TAG, "%s event_id=%s", event_base, "MQTT_EVENT_DISCONNECTED");
+
+        mqttConnected = false;
+
+        break;
+
+    case MQTT_EVENT_SUBSCRIBED:
+        ESP_LOGI(TAG, "%s event_id=%s", event_base, "MQTT_EVENT_SUBSCRIBED");
+        break;
+
+    case MQTT_EVENT_UNSUBSCRIBED:
+        ESP_LOGI(TAG, "%s event_id=%s", event_base, "MQTT_EVENT_UNSUBSCRIBED");
+        break;
+
+    case MQTT_EVENT_PUBLISHED:
+        ESP_LOGI(TAG, "%s event_id=%s", event_base, "MQTT_EVENT_PUBLISHED");
+        break;
+
+    case MQTT_EVENT_DATA: {
+        std::string_view topic{data->topic, (size_t)data->topic_len};
+        std::string_view value{data->data, (size_t)data->data_len};
+
+        ESP_LOGI(TAG, "%s event_id=%s topic=%.*s data=%.*s", event_base, "MQTT_EVENT_DATA", topic.size(), topic.data(), value.size(), value.data());
+
+        if (topic == config::topic_lamp_set) {
+            if (config::enable_lamp) {
+                bool newState = (lampState = (value == "ON"));
+                writeLamp(newState);
+                if (mqttClient && mqttConnected)
+                    mqttVerbosePub(config::topic_lamp_status, newState ? "ON" : "OFF", 0, 1);
+            } else {
+                ESP_LOGW(TAG, "received lamp set without lamp support enabled!");
+            }
+        } else {
+            ESP_LOGW(TAG, "received unknown data topic=%.*s data=%.*s", topic.size(), topic.data(), value.size(), value.data());
+        }
+
+        break;
+    }
+    case MQTT_EVENT_BEFORE_CONNECT:
+        ESP_LOGI(TAG, "%s event_id=%s", event_base, "MQTT_EVENT_BEFORE_CONNECT");
+        break;
+
+    case MQTT_EVENT_DELETED:
+        ESP_LOGI(TAG, "%s event_id=%s", event_base, "MQTT_EVENT_DELETED");
+        break;
+
+    default:
+        ESP_LOGW(TAG, "%s unknown event_id %i", event_base, event_id);
+        break;
+    }
+}
+} // namespace
+} // namespace deckenlampe

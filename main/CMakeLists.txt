@@ -2,10 +2,30 @@ idf_build_get_property(project_dir PROJECT_DIR)
 message(STATUS "The project dir is: ${project_dir}")
 
 set(headers
+    feature_bmp.h
+    feature_dht.h
+    feature_lamp.h
+    feature_switch.h
+    feature_tsl.h
+    myconfig.h
+    mymdns.h
+    mymqtt.h
+    mywifi.h
+    webserver.h
 )
 
 set(sources
+    feature_bmp.cpp
+    feature_dht.cpp
+    feature_lamp.cpp
+    feature_switch.cpp
+    feature_tsl.cpp
     main.cpp
+    myconfig.cpp
+    mymdns.cpp
+    mymqtt.cpp
+    mywifi.cpp
+    webserver.cpp
 )
 
 set(dependencies
