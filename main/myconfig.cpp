@@ -39,21 +39,21 @@ ConfigWrapper<bool> invert_switch{"invert_switch", "invert_switch", true};
 ConfigWrapper<std::string> topic_switch_availability{"topic_switch_availability", "tpcswitchavaila", "dahoam/wohnzimmer/schalter1/available"};
 ConfigWrapper<std::string> topic_switch_status{"topic_switch_status", "topicswitchstat", "dahoam/wohnzimmer/schalter1/status"};
 
-ConfigWrapper<bool> enable_dht{"enable_dht", "enable_dht", true};
+ConfigWrapper<bool> enable_dht{"enable_dht", "enable_dht", false};
 ConfigWrapper<gpio_num_t> pins_dht{"pins_dht", "pins_dht", GPIO_NUM_33};
 ConfigWrapper<std::string> topic_dht11_availability{"topic_dht11_availability", "tpcdht11availab", "dahoam/wohnzimmer/dht11_1/available"};
 ConfigWrapper<std::string> topic_dht11_temperature{"topic_dht11_temperature", "tpcdht11tempera", "dahoam/wohnzimmer/dht11_1/temperature"};
 ConfigWrapper<std::string> topic_dht11_humidity{"topic_dht11_humidity", "tpcdht11humidit", "dahoam/wohnzimmer/dht11_1/humidity"};
 
-ConfigWrapper<bool> enable_i2c{"enable_i2c", "enable_i2c", true};
+ConfigWrapper<bool> enable_i2c{"enable_i2c", "enable_i2c", false};
 ConfigWrapper<gpio_num_t> pins_sda{"pins_sda", "pins_sda", GPIO_NUM_16};
 ConfigWrapper<gpio_num_t> pins_scl{"pins_scl", "pins_scl", GPIO_NUM_17};
 
-ConfigWrapper<bool> enable_tsl{"enable_tsl", "enable_tsl", true};
+ConfigWrapper<bool> enable_tsl{"enable_tsl", "enable_tsl", false};
 ConfigWrapper<std::string> topic_tsl2561_availability{"topic_tsl2561_availability", "tpctsl2561avail", "dahoam/wohnzimmer/tsl2561_1/available"};
 ConfigWrapper<std::string> topic_tsl2561_lux{"topic_tsl2561_lux", "tpc_tsl2561_lux", "dahoam/wohnzimmer/tsl2561_1/lux"};
 
-ConfigWrapper<bool> enable_bmp{"enable_bmp", "enable_bmp", true};
+ConfigWrapper<bool> enable_bmp{"enable_bmp", "enable_bmp", false};
 ConfigWrapper<std::string> topic_bmp085_availability{"topic_bmp085_availability", "topicbmp085avai", "dahoam/wohnzimmer/bmp085_1/available"};
 ConfigWrapper<std::string> topic_bmp085_pressure{"topic_bmp085_pressure", "tpcbmp085pressu", "dahoam/wohnzimmer/bmp085_1/pressure"};
 ConfigWrapper<std::string> topic_bmp085_temperature{"topic_bmp085_temperature", "tpcbmp085temper", "dahoam/wohnzimmer/bmp085_1/temperature"};

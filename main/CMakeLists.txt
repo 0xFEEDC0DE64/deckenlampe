@@ -8,7 +8,6 @@ set(headers
     feature_lamp.h
     feature_switch.h
     feature_tsl.h
-    futurecpp.h
     myconfig.h
     mymdns.h
     mymqtt.h
