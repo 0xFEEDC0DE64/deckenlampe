@@ -38,7 +38,7 @@ wifi_stack::config makeWifiConfig()
             wifi_stack::wifi_entry { .ssid = {}, .key = {} }
         },
         .sta_ip = {
-            .dhcpEnabled = true,
+            .staticIpEnabled = false,
 //            .staticIp = {},
 //            .staticGateway = {},
 //            .staticSubnet = {},

@@ -3,6 +3,7 @@
 // system includes
 #include <string_view>
 #include <string>
+#include <atomic>
 
 // esp-idf includes
 #include <esp_log.h>
@@ -33,6 +34,8 @@ constexpr const char * const TAG = "WEBSERVER";
 
 template<typename T> T htmlentities(const T &val) { return val; } // TODO
 template<typename T> T htmlentities(T &&val) { return val; } // TODO
+
+std::atomic<bool> shouldReboot;
 
 esp_err_t webserver_root_handler(httpd_req_t *req);
 esp_err_t webserver_on_handler(httpd_req_t *req);
@@ -75,6 +78,12 @@ void update_webserver()
 {
     if (!config::enable_webserver.value())
         return;
+
+    if (shouldReboot)
+    {
+        shouldReboot = false;
+        esp_restart();
+    }
 }
 
 namespace {
@@ -132,9 +141,7 @@ esp_err_t webserver_root_handler(httpd_req_t *req)
         return result;
 
     CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
-    CALL_AND_EXIT_ON_ERROR(httpd_resp_send, req, body.data(), body.size())
-
-    return ESP_OK;
+    CALL_AND_EXIT(httpd_resp_send, req, body.data(), body.size())
 }
 
 esp_err_t webserver_dht_display(httpd_req_t *req, std::string &body)
@@ -469,7 +476,7 @@ esp_err_t webserver_on_handler(httpd_req_t *req)
 {
     if (!config::enable_lamp.value()) {
         ESP_LOGW(TAG, "lamp support not enabled!");
-        CALL_AND_EXIT_ON_ERROR(httpd_resp_send_err, req, HTTPD_400_BAD_REQUEST, "lamp support not enabled!")
+        CALL_AND_EXIT(httpd_resp_send_err, req, HTTPD_400_BAD_REQUEST, "lamp support not enabled!")
     }
 
     const bool state = (lampState = true);
@@ -480,16 +487,14 @@ esp_err_t webserver_on_handler(httpd_req_t *req)
 
     std::string_view body{"ON called..."};
     CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
-    CALL_AND_EXIT_ON_ERROR(httpd_resp_send, req, body.data(), body.size())
-
-    return ESP_OK;
+    CALL_AND_EXIT(httpd_resp_send, req, body.data(), body.size())
 }
 
 esp_err_t webserver_off_handler(httpd_req_t *req)
 {
     if (!config::enable_lamp.value()) {
         ESP_LOGW(TAG, "lamp support not enabled!");
-        CALL_AND_EXIT_ON_ERROR(httpd_resp_send_err, req, HTTPD_400_BAD_REQUEST, "lamp support not enabled!")
+        CALL_AND_EXIT(httpd_resp_send_err, req, HTTPD_400_BAD_REQUEST, "lamp support not enabled!")
     }
 
     const bool state = (lampState = false);
@@ -500,16 +505,14 @@ esp_err_t webserver_off_handler(httpd_req_t *req)
 
     std::string_view body{"OFF called..."};
     CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
-    CALL_AND_EXIT_ON_ERROR(httpd_resp_send, req, body.data(), body.size())
-
-    return ESP_OK;
+    CALL_AND_EXIT(httpd_resp_send, req, body.data(), body.size())
 }
 
 esp_err_t webserver_toggle_handler(httpd_req_t *req)
 {
     if (!config::enable_lamp.value()) {
         ESP_LOGW(TAG, "lamp support not enabled!");
-        CALL_AND_EXIT_ON_ERROR(httpd_resp_send_err, req, HTTPD_400_BAD_REQUEST, "lamp support not enabled!")
+        CALL_AND_EXIT(httpd_resp_send_err, req, HTTPD_400_BAD_REQUEST, "lamp support not enabled!")
     }
 
     const bool state = (lampState = !lampState);
@@ -520,20 +523,16 @@ esp_err_t webserver_toggle_handler(httpd_req_t *req)
 
     std::string_view body{"TOGGLE called..."};
     CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
-    CALL_AND_EXIT_ON_ERROR(httpd_resp_send, req, body.data(), body.size())
-
-    return ESP_OK;
+    CALL_AND_EXIT(httpd_resp_send, req, body.data(), body.size())
 }
 
 esp_err_t webserver_reboot_handler(httpd_req_t *req)
 {
+    shouldReboot = true;
+
     std::string_view body{"REBOOT called..."};
     CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
-    CALL_AND_EXIT_ON_ERROR(httpd_resp_send, req, body.data(), body.size())
-
-    esp_restart();
-
-    return ESP_OK;
+    CALL_AND_EXIT(httpd_resp_send, req, body.data(), body.size())
 }
 } // namespace
 } // namespace deckenlampe
