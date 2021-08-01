@@ -19,6 +19,7 @@
 #include "tickchrono.h"
 #include "myconfig.h"
 #include "mywifi.h"
+#include "myble.h"
 #include "webserver.h"
 #include "mymdns.h"
 #include "mymqtt.h"
@@ -89,6 +90,8 @@ extern "C" void app_main()
     }
 
     init_wifi();
+
+    init_ble();
 
     init_webserver();
 

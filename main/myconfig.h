@@ -23,6 +23,9 @@ extern ConfigWrapper<std::string> sta_key;
 extern ConfigWrapper<std::string> ap_ssid;
 extern ConfigWrapper<std::string> ap_key;
 
+extern ConfigWrapper<bool> enable_ble;
+extern ConfigWrapper<std::string> ble_name;
+
 extern ConfigWrapper<bool> enable_webserver;
 
 extern ConfigWrapper<bool> enable_mdns;
@@ -46,6 +49,7 @@ extern ConfigWrapper<std::string> topic_switch_status;
 
 extern ConfigWrapper<bool> enable_dht;
 extern ConfigWrapper<gpio_num_t> pins_dht;
+extern ConfigWrapper<bool> dht_11_or_22;
 extern ConfigWrapper<std::string> topic_dht11_availability;
 extern ConfigWrapper<std::string> topic_dht11_temperature;
 extern ConfigWrapper<std::string> topic_dht11_humidity;
@@ -75,6 +79,8 @@ void foreachConfig(T &&callback)
     callback(sta_key);
     callback(ap_ssid);
     callback(ap_key);
+    callback(enable_ble);
+    callback(ble_name);
     callback(enable_webserver);
     callback(enable_mdns);
     callback(enable_mqtt);
@@ -92,6 +98,7 @@ void foreachConfig(T &&callback)
     callback(topic_switch_status);
     callback(enable_dht);
     callback(pins_dht);
+    callback(dht_11_or_22);
     callback(topic_dht11_availability);
     callback(topic_dht11_temperature);
     callback(topic_dht11_humidity);

@@ -8,6 +8,7 @@ set(headers
     feature_lamp.h
     feature_switch.h
     feature_tsl.h
+    myble.h
     myconfig.h
     mymdns.h
     mymqtt.h
@@ -24,6 +25,7 @@ set(sources
     feature_switch.cpp
     feature_tsl.cpp
     main.cpp
+    myble.cpp
     myconfig.cpp
     mymdns.cpp
     mymqtt.cpp
@@ -33,7 +35,7 @@ set(sources
 
 set(dependencies
     freertos nvs_flash esp_http_server esp_https_ota mdns app_update esp_system mqtt
-    arduino-esp32 cpputils date espchrono espcpputils espwifistack expected fmt
+    arduino-esp32 cpputils date esp-nimble-cpp espchrono espcpputils espwifistack expected fmt
     Adafruit_BMP085_Unified Adafruit_TSL2561 DHT-sensor-library
 )
 

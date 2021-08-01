@@ -18,6 +18,9 @@ ConfigWrapper<std::string> sta_key{"sta_key", "sta_key", "Passwort_123"};
 ConfigWrapper<std::string> ap_ssid{"ap_ssid", "ap_ssid", "deckenlampe1"};
 ConfigWrapper<std::string> ap_key{"ap_key", "ap_key", "Passwort_123"};
 
+ConfigWrapper<bool> enable_ble{"enable_ble", "enable_ble", true};
+ConfigWrapper<std::string> ble_name{"ble_name", "ble_name", "deckenlampe1"};
+
 ConfigWrapper<bool> enable_webserver{"enable_webserver", "enableebserver", true};
 
 ConfigWrapper<bool> enable_mdns{"enable_mdns", "enable_mdns", true};
@@ -41,6 +44,7 @@ ConfigWrapper<std::string> topic_switch_status{"topic_switch_status", "topicswit
 
 ConfigWrapper<bool> enable_dht{"enable_dht", "enable_dht", false};
 ConfigWrapper<gpio_num_t> pins_dht{"pins_dht", "pins_dht", GPIO_NUM_33};
+ConfigWrapper<bool> dht_11_or_22{"dht_11_or_22", "dht_11_or_22", false};
 ConfigWrapper<std::string> topic_dht11_availability{"topic_dht11_availability", "tpcdht11availab", "dahoam/wohnzimmer/dht11_1/available"};
 ConfigWrapper<std::string> topic_dht11_temperature{"topic_dht11_temperature", "tpcdht11tempera", "dahoam/wohnzimmer/dht11_1/temperature"};
 ConfigWrapper<std::string> topic_dht11_humidity{"topic_dht11_humidity", "tpcdht11humidit", "dahoam/wohnzimmer/dht11_1/humidity"};

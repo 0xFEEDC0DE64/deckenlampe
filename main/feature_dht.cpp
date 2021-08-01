@@ -32,7 +32,7 @@ void init_dht()
     if (!config::enable_dht.value())
         return;
 
-    dht.construct(config::pins_dht.value(), DHT11);
+    dht.construct(config::pins_dht.value(), config::dht_11_or_22.value() ? DHT22 : DHT11);
 
     ESP_LOGI(TAG, "calling dht.begin()...");
     dhtInitialized = dht->begin();
