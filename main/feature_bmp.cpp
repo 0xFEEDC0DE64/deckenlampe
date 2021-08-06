@@ -39,7 +39,8 @@ void init_bmp()
     bmpInitialized = bmp->begin();
     ESP_LOGI(TAG, "finished with %s", bmpInitialized ? "true" : "false");
 
-    if (bmpInitialized) {
+    if (bmpInitialized)
+    {
         sensor_t sensor = bmp->getSensor();
         ESP_LOGI(TAG, "------------------------------------");
         ESP_LOGI(TAG, "Sensor:       %s", sensor.name);
@@ -58,14 +59,17 @@ void update_bmp()
     if (!config::enable_i2c.value() || !config::enable_bmp.value())
         return;
 
-    if (bmpInitialized) {
+    if (bmpInitialized)
+    {
         if (espchrono::ago(last_bmp085_readout) < 5s)
             return;
 
         last_bmp085_readout = espchrono::millis_clock::now();
 
-        if (std::optional<Adafruit_BMP085_Unified::TemperatureAndPressure> values = bmp->getTemperatureAndPressure()) {
-            if (values->temperature && values->pressure) {
+        if (std::optional<Adafruit_BMP085_Unified::TemperatureAndPressure> values = bmp->getTemperatureAndPressure())
+        {
+            if (values->temperature && values->pressure)
+            {
                 BmpValue bmpValue {
                     .timestamp = espchrono::millis_clock::now(),
                     .pressure = values->pressure,
@@ -79,35 +83,46 @@ void update_bmp()
                 bmpValue.altitude = bmp->pressureToAltitude(seaLevelPressure, bmpValue.pressure);
                 ESP_LOGI(TAG, "read bmp Altitude: %.1f m", bmpValue.altitude);
 
-                if (mqttConnected) {
+                if (mqttConnected)
+                {
                     if (!lastBmpValue)
                         mqttVerbosePub(config::topic_bmp085_availability.value(), "online", 0, 1);
-                    if (!lastBmpValue || espchrono::ago(last_bmp085_pressure_pub) >= config::valueUpdateInterval.value()) {
+                    if (!lastBmpValue || espchrono::ago(last_bmp085_pressure_pub) >= config::valueUpdateInterval.value())
+                    {
                         if (mqttVerbosePub(config::topic_bmp085_pressure.value(), fmt::format("{:.1f}", bmpValue.pressure), 0, 1) >= 0)
                             last_bmp085_pressure_pub = espchrono::millis_clock::now();
                     }
-                    if (!lastBmpValue || espchrono::ago(last_bmp085_temperature_pub) >= config::valueUpdateInterval.value()) {
+                    if (!lastBmpValue || espchrono::ago(last_bmp085_temperature_pub) >= config::valueUpdateInterval.value())
+                    {
                         if (mqttVerbosePub(config::topic_bmp085_temperature.value(), fmt::format("{:.1f}", bmpValue.temperature), 0, 1) >= 0)
                             last_bmp085_temperature_pub = espchrono::millis_clock::now();
                     }
-                    if (!lastBmpValue || espchrono::ago(last_bmp085_altitude_pub) >= config::valueUpdateInterval.value()) {
+                    if (!lastBmpValue || espchrono::ago(last_bmp085_altitude_pub) >= config::valueUpdateInterval.value())
+                    {
                         if (mqttVerbosePub(config::topic_bmp085_altitude.value(), fmt::format("{:.1f}", bmpValue.altitude), 0, 1) >= 0)
                             last_bmp085_altitude_pub = espchrono::millis_clock::now();
                     }
                 }
 
                 lastBmpValue = bmpValue;
-            } else {
+            }
+            else
+            {
                 ESP_LOGW(TAG, "bmp sensor error");
                 goto bmpOffline;
             }
-        } else {
+        }
+        else
+        {
             ESP_LOGW(TAG, "bmp failed");
             goto bmpOffline;
         }
-    } else {
+    }
+    else
+    {
     bmpOffline:
-        if (lastBmpValue && espchrono::ago(lastBmpValue->timestamp) >= config::availableTimeoutTime.value()) {
+        if (lastBmpValue && espchrono::ago(lastBmpValue->timestamp) >= config::availableTimeoutTime.value())
+        {
             ESP_LOGW(TAG, "bmp timeouted");
             if (mqttConnected)
                 mqttVerbosePub(config::topic_bmp085_availability.value(), "offline", 0, 1);

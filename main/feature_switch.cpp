@@ -41,9 +41,11 @@ void update_switch()
     const auto newState = readSwitch();
     if (newState == switchState.load())
         switchDebounce = 0;
-    else {
+    else
+    {
         switchDebounce++;
-        if (switchDebounce >= 10) {
+        if (switchDebounce >= 10)
+        {
             switchDebounce = 0;
 
             switchState = newState;
@@ -51,7 +53,8 @@ void update_switch()
             if (mqttConnected)
                 mqttVerbosePub(config::topic_switch_status.value(), switchState ? "ON" : "OFF", 0, 1);
 
-            if (config::enable_lamp.value()) {
+            if (config::enable_lamp.value())
+            {
                 lampState = !lampState;
                 writeLamp(lampState);
 

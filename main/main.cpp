@@ -23,6 +23,7 @@
 #include "webserver.h"
 #include "mymdns.h"
 #include "mymqtt.h"
+#include "myota.h"
 #include "feature_lamp.h"
 #include "feature_switch.h"
 #include "feature_dht.h"
@@ -99,6 +100,8 @@ extern "C" void app_main()
 
     init_mqtt();
 
+    init_ota();
+
     init_dht();
 
     init_tsl();
@@ -128,6 +131,9 @@ extern "C" void app_main()
         vPortYield();
 
         update_mqtt();
+        vPortYield();
+
+        update_ota();
         vPortYield();
 
         update_dht();

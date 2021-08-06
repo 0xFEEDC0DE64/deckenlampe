@@ -102,15 +102,18 @@ namespace {
 template<typename T>
 void loadParam(ConfigWrapper<T> &config)
 {
-    if (const auto len = std::strlen(config.nvsKey()); len > 15) {
+    if (const auto len = std::strlen(config.nvsKey()); len > 15)
+    {
         ESP_LOGE(TAG, "%s too long %zd (%zd)", config.nvsKey(), len, len-15);
         assert(false);
     }
 
-    if (const auto value = config.readFromFlash()) {
+    if (const auto value = config.readFromFlash())
+    {
         if (*value)
             config.setValue(**value);
-    } else
+    }
+    else
         ESP_LOGE(TAG, "error loading config %s: %.*s", config.name(), value.error().size(), value.error().data());
 }
 } // namespace

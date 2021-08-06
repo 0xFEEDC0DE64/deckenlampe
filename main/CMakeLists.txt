@@ -12,6 +12,7 @@ set(headers
     myconfig.h
     mymdns.h
     mymqtt.h
+    myota.h
     mywifi.h
     nvswrappers.h
     webserver.h
@@ -29,13 +30,14 @@ set(sources
     myconfig.cpp
     mymdns.cpp
     mymqtt.cpp
+    myota.cpp
     mywifi.cpp
     webserver.cpp
 )
 
 set(dependencies
     freertos nvs_flash esp_http_server esp_https_ota mdns app_update esp_system mqtt
-    arduino-esp32 cpputils date esp-nimble-cpp espchrono espcpputils espwifistack expected fmt
+    arduino-esp32 cpputils date esp-nimble-cpp espasyncota espchrono espcpputils espwifistack expected fmt
     Adafruit_BMP085_Unified Adafruit_TSL2561 DHT-sensor-library
 )
 

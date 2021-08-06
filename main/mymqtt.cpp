@@ -70,7 +70,8 @@ int mqttVerbosePub(std::string_view topic, std::string_view value, int qos, int 
 {
     ESP_LOGD(TAG, "topic=\"%.*s\" value=\"%.*s\"", topic.size(), topic.data(), value.size(), value.data());
 
-    if (!mqttClient) {
+    if (!mqttClient)
+    {
         ESP_LOGE(TAG, "mqttClient not constructed!");
         return -1;
     }
@@ -90,7 +91,8 @@ void mqttEventHandler(void *event_handler_arg, esp_event_base_t event_base, int3
 
     const esp_mqtt_event_t *data = reinterpret_cast<const esp_mqtt_event_t *>(event_data);
 
-    switch (esp_mqtt_event_id_t(event_id)) {
+    switch (esp_mqtt_event_id_t(event_id))
+    {
     case MQTT_EVENT_ERROR:
         ESP_LOGE(TAG, "%s event_id=%s", event_base, "MQTT_EVENT_ERROR");
 
@@ -110,20 +112,24 @@ void mqttEventHandler(void *event_handler_arg, esp_event_base_t event_base, int3
 
         mqttConnected = true;
 
-        if (config::enable_lamp.value()) {
+        if (config::enable_lamp.value())
+        {
             mqttVerbosePub(config::topic_lamp_availability.value(), "online", 0, 1);
             mqttVerbosePub(config::topic_lamp_status.value(), lampState.load() ? "ON" : "OFF", 0, 1);
             mqttClient.subscribe(config::topic_lamp_set.value(), 0);
         }
 
-        if (config::enable_switch.value()) {
+        if (config::enable_switch.value())
+        {
             mqttVerbosePub(config::topic_switch_availability.value(), "online", 0, 1);
             mqttVerbosePub(config::topic_switch_status.value(), switchState.load() ? "ON" : "OFF", 0, 1);
         }
 
-        if (config::enable_dht.value()) {
+        if (config::enable_dht.value())
+        {
             mqttVerbosePub(config::topic_dht11_availability.value(), lastDhtValue ? "online" : "offline", 0, 1);
-            if (lastDhtValue) {
+            if (lastDhtValue)
+            {
                 if (mqttVerbosePub(config::topic_dht11_temperature.value(), fmt::format("{:.1f}", lastDhtValue->temperature), 0, 1) >= 0)
                     last_dht11_temperature_pub = espchrono::millis_clock::now();
                 if (mqttVerbosePub(config::topic_dht11_humidity.value(), fmt::format("{:.1f}", lastDhtValue->humidity), 0, 1) >= 0)
@@ -131,17 +137,21 @@ void mqttEventHandler(void *event_handler_arg, esp_event_base_t event_base, int3
             }
         }
 
-        if (config::enable_i2c.value() && config::enable_tsl.value()) {
+        if (config::enable_i2c.value() && config::enable_tsl.value())
+        {
             mqttVerbosePub(config::topic_tsl2561_availability.value(), lastTslValue ? "online" : "offline", 0, 1);
-            if (lastTslValue) {
+            if (lastTslValue)
+            {
                 if (mqttVerbosePub(config::topic_tsl2561_lux.value(), fmt::format("{:.1f}", lastTslValue->lux), 0, 1) >= 0)
                     last_tsl2561_lux_pub = espchrono::millis_clock::now();
             }
         }
 
-        if (config::enable_i2c.value() && config::enable_bmp.value()) {
+        if (config::enable_i2c.value() && config::enable_bmp.value())
+        {
             mqttVerbosePub(config::topic_bmp085_availability.value(), lastBmpValue ? "online" : "offline", 0, 1);
-            if (lastBmpValue) {
+            if (lastBmpValue)
+            {
                 if (mqttVerbosePub(config::topic_bmp085_pressure.value(), fmt::format("{:.1f}", lastBmpValue->pressure), 0, 1) >= 0)
                     last_bmp085_pressure_pub = espchrono::millis_clock::now();
                 if (mqttVerbosePub(config::topic_bmp085_temperature.value(), fmt::format("{:.1f}", lastBmpValue->temperature), 0, 1) >= 0)
@@ -178,16 +188,22 @@ void mqttEventHandler(void *event_handler_arg, esp_event_base_t event_base, int3
 
         ESP_LOGI(TAG, "%s event_id=%s topic=%.*s data=%.*s", event_base, "MQTT_EVENT_DATA", topic.size(), topic.data(), value.size(), value.data());
 
-        if (topic == config::topic_lamp_set.value()) {
-            if (config::enable_lamp.value()) {
+        if (topic == config::topic_lamp_set.value())
+        {
+            if (config::enable_lamp.value())
+            {
                 bool newState = (lampState = (value == "ON"));
                 writeLamp(newState);
                 if (mqttConnected)
                     mqttVerbosePub(config::topic_lamp_status.value(), newState ? "ON" : "OFF", 0, 1);
-            } else {
+            }
+            else
+            {
                 ESP_LOGW(TAG, "received lamp set without lamp support enabled!");
             }
-        } else {
+        }
+        else
+        {
             ESP_LOGW(TAG, "received unknown data topic=%.*s data=%.*s", topic.size(), topic.data(), value.size(), value.data());
         }
 
