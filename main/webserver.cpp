@@ -21,21 +21,20 @@
 #include "mymqtt.h"
 #include "espwifistack.h"
 #include "espcppmacros.h"
-#include "espstrutils.h"
 #include "strutils.h"
 #include "espchrono.h"
 #include "numberparsing.h"
 #include "myota.h"
 #include "espasyncota.h"
+#include "esphttpdutils.h"
+
+using namespace esphttpdutils;
 
 namespace deckenlampe {
 httpd_handle_t httpdHandle;
 
 namespace {
 constexpr const char * const TAG = "WEBSERVER";
-
-template<typename T> T htmlentities(const T &val) { return val; } // TODO
-template<typename T> T htmlentities(T &&val) { return val; } // TODO
 
 std::atomic<bool> shouldReboot;
 
@@ -44,6 +43,7 @@ esp_err_t webserver_on_handler(httpd_req_t *req);
 esp_err_t webserver_off_handler(httpd_req_t *req);
 esp_err_t webserver_toggle_handler(httpd_req_t *req);
 esp_err_t webserver_reboot_handler(httpd_req_t *req);
+esp_err_t webserver_ota_handler(httpd_req_t *req);
 } // namespace
 
 void init_webserver()
@@ -66,7 +66,8 @@ void init_webserver()
              httpd_uri_t { .uri = "/on",     .method = HTTP_GET, .handler = webserver_on_handler,     .user_ctx = NULL },
              httpd_uri_t { .uri = "/off",    .method = HTTP_GET, .handler = webserver_off_handler,    .user_ctx = NULL },
              httpd_uri_t { .uri = "/toggle", .method = HTTP_GET, .handler = webserver_toggle_handler, .user_ctx = NULL },
-             httpd_uri_t { .uri = "/reboot", .method = HTTP_GET, .handler = webserver_reboot_handler, .user_ctx = NULL }
+             httpd_uri_t { .uri = "/reboot", .method = HTTP_GET, .handler = webserver_reboot_handler, .user_ctx = NULL },
+             httpd_uri_t { .uri = "/ota",    .method = HTTP_GET, .handler = webserver_ota_handler,    .user_ctx = NULL }
     })
     {
         const auto result = httpd_register_uri_handler(httpdHandle, &uri);
@@ -89,12 +90,14 @@ void update_webserver()
 }
 
 namespace {
+esp_err_t webserver_otainfo_display(httpd_req_t *req, std::string &body);
 esp_err_t webserver_dht_display(httpd_req_t *req, std::string &body);
 esp_err_t webserver_tsl_display(httpd_req_t *req, std::string &body);
 esp_err_t webserver_bmp_display(httpd_req_t *req, std::string &body);
 esp_err_t webserver_wifi_display(httpd_req_t *req, std::string &body);
 esp_err_t webserver_mqtt_display(httpd_req_t *req, std::string &body);
 esp_err_t webserver_config_display(httpd_req_t *req, std::string &body, std::string_view query);
+esp_err_t webserver_otaform_display(httpd_req_t *req, std::string &body);
 
 esp_err_t webserver_root_handler(httpd_req_t *req)
 {
@@ -107,6 +110,9 @@ esp_err_t webserver_root_handler(httpd_req_t *req)
     }
 
     std::string body;
+
+    if (const auto result = webserver_otainfo_display(req, body); result != ESP_OK)
+        return result;
 
     if (config::enable_lamp.value())
     {
@@ -144,8 +150,41 @@ esp_err_t webserver_root_handler(httpd_req_t *req)
     if (const auto result = webserver_config_display(req, body, query); result != ESP_OK)
         return result;
 
-    CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
-    CALL_AND_EXIT(httpd_resp_send, req, body.data(), body.size())
+    if (const auto result = webserver_otaform_display(req, body); result != ESP_OK)
+        return result;
+
+    CALL_AND_EXIT(webserver_resp_send_succ, req, "text/html", body)
+}
+
+esp_err_t webserver_otainfo_display(httpd_req_t *req, std::string &body)
+{
+    if (const auto otaStatus = asyncOta.status(); otaStatus != OtaCloudUpdateStatus::Idle)
+    {
+        const auto progress = asyncOta.progress();
+        const char *color;
+        switch (otaStatus)
+        {
+        case OtaCloudUpdateStatus::Updating:  color = "#b8b800"; break;
+        case OtaCloudUpdateStatus::Succeeded: color = "#13c200"; break;
+        default:                              color = "#b80000";
+        }
+
+        body += fmt::format("<p style=\"color: {};\">OTA: status={} progress={}", color, esphttpdutils::htmlentities(toString(otaStatus)), progress);
+
+        if (const auto totalSize = asyncOta.totalSize())
+        {
+            body += fmt::format(" totalSize={}", *totalSize);
+            if (*totalSize)
+                body += fmt::format(" percentage={:.1f}%", 100.f * progress / *totalSize);
+        }
+
+        if (const auto &message = asyncOta.message(); !message.empty())
+            body += fmt::format(" message={}", esphttpdutils::htmlentities(message));
+
+        body += "</p>\n";
+    }
+
+    return ESP_OK;
 }
 
 esp_err_t webserver_dht_display(httpd_req_t *req, std::string &body)
@@ -210,13 +249,13 @@ esp_err_t webserver_wifi_display(httpd_req_t *req, std::string &body)
             if (const auto result = wifi_stack::get_sta_ap_info(); result)
             {
                 body += fmt::format("<tr><th>STA rssi</th><td>{}dB</td></tr>\n", result->rssi);
-                body += fmt::format("<tr><th>STA SSID</th><td>{}</td></tr>\n", htmlentities(result->ssid));
+                body += fmt::format("<tr><th>STA SSID</th><td>{}</td></tr>\n", esphttpdutils::htmlentities(result->ssid));
                 body += fmt::format("<tr><th>STA channel</th><td>{}</td></tr>\n", result->primary);
                 body += fmt::format("<tr><th>STA BSSID</th><td>{}</td></tr>\n", wifi_stack::toString(wifi_stack::mac_t{result->bssid}));
             }
             else
             {
-                body += fmt::format("<tr><td colspan=\"2\">get_sta_ap_info() failed: {}</td></tr>\n", htmlentities(result.error()));
+                body += fmt::format("<tr><td colspan=\"2\">get_sta_ap_info() failed: {}</td></tr>\n", esphttpdutils::htmlentities(result.error()));
             }
 
             if (const auto result = wifi_stack::get_ip_info(TCPIP_ADAPTER_IF_STA))
@@ -227,7 +266,7 @@ esp_err_t webserver_wifi_display(httpd_req_t *req, std::string &body)
             }
             else
             {
-                body += fmt::format("<tr><td colspan=\"2\">get_ip_info() failed: {}</td></tr>\n", htmlentities(result.error()));
+                body += fmt::format("<tr><td colspan=\"2\">get_ip_info() failed: {}</td></tr>\n", esphttpdutils::htmlentities(result.error()));
             }
         }
     }
@@ -265,7 +304,7 @@ esp_err_t webserver_wifi_display(httpd_req_t *req, std::string &body)
                     "<td>{}</td>\n"
                     "<td>{}</td>\n"
                 "</tr>\n",
-                htmlentities(entry.ssid),
+                esphttpdutils::htmlentities(entry.ssid),
                 wifi_stack::toString(entry.authmode),
                 wifi_stack::toString(entry.pairwise_cipher),
                 wifi_stack::toString(entry.group_cipher),
@@ -292,7 +331,7 @@ esp_err_t webserver_mqtt_display(httpd_req_t *req, std::string &body)
         body += "<br/>\n"
                 "<h2>MQTT</h2>\n"
                 "<table border=\"1\">\n";
-        body += fmt::format("<tr><th>client url</th><td>{}</td></tr>\n", htmlentities(config::broker_url.value()));
+        body += fmt::format("<tr><th>client url</th><td>{}</td></tr>\n", esphttpdutils::htmlentities(config::broker_url.value()));
         body += fmt::format("<tr><th>client constructed</th><td>{}</td></tr>\n", mqttClient ? "true" : "false");
         if (mqttClient)
         {
@@ -318,10 +357,10 @@ std::string webserver_form_for_config(httpd_req_t *req, ConfigWrapper<bool> &con
 
     {
         char valueBufEncoded[256];
-        if (const auto result = httpd_query_key_value(query.data(), config.nvsKey(), valueBufEncoded, 256); result == ESP_OK)
+        if (const auto result = httpd_query_key_value(query.data(), config.nvsKey(), valueBufEncoded, sizeof(valueBufEncoded)); result == ESP_OK)
         {
             char valueBuf[257];
-            espcpputils::urldecode(valueBuf, valueBufEncoded);
+            esphttpdutils::urldecode(valueBuf, valueBufEncoded);
 
             std::string_view value{valueBuf};
 
@@ -330,11 +369,11 @@ std::string webserver_form_for_config(httpd_req_t *req, ConfigWrapper<bool> &con
                 if (const auto result = config.writeToFlash(value == "true"))
                     str += "<span style=\"color: green;\">Successfully saved</span>";
                 else
-                    str += fmt::format("<span style=\"color: red;\">Error while saving: {}</span>", htmlentities(result.error()));
+                    str += fmt::format("<span style=\"color: red;\">Error while saving: {}</span>", esphttpdutils::htmlentities(result.error()));
             }
             else
             {
-                str += fmt::format("<span style=\"color: red;\">Error while saving: Invalid value \"{}\"</span>", htmlentities(value));
+                str += fmt::format("<span style=\"color: red;\">Error while saving: Invalid value \"{}\"</span>", esphttpdutils::htmlentities(value));
             }
         }
         else if (result != ESP_ERR_NOT_FOUND)
@@ -349,8 +388,8 @@ std::string webserver_form_for_config(httpd_req_t *req, ConfigWrapper<bool> &con
                            "<input type=\"checkbox\" name=\"{}\" value=\"true\"{} />"
                            "<button type=\"submit\">Save</button>"
                        "</form>",
-                       htmlentities(config.nvsKey()),
-                       htmlentities(config.nvsKey()),
+                       esphttpdutils::htmlentities(config.nvsKey()),
+                       esphttpdutils::htmlentities(config.nvsKey()),
                        config.value() ? " checked" : "");
 
     return str;
@@ -363,15 +402,15 @@ std::string webserver_form_for_config(httpd_req_t *req, ConfigWrapper<std::strin
 
     {
         char valueBufEncoded[256];
-        if (const auto result = httpd_query_key_value(query.data(), config.nvsKey(), valueBufEncoded, 256); result == ESP_OK)
+        if (const auto result = httpd_query_key_value(query.data(), config.nvsKey(), valueBufEncoded, sizeof(valueBufEncoded)); result == ESP_OK)
         {
             char valueBuf[257];
-            espcpputils::urldecode(valueBuf, valueBufEncoded);
+            esphttpdutils::urldecode(valueBuf, valueBufEncoded);
 
             if (const auto result = config.writeToFlash(valueBuf))
                 str += "<span style=\"color: green;\">Successfully saved</span>";
             else
-                str += fmt::format("<span style=\"color: red;\">Error while saving: {}</span>", htmlentities(result.error()));
+                str += fmt::format("<span style=\"color: red;\">Error while saving: {}</span>", esphttpdutils::htmlentities(result.error()));
         }
         else if (result != ESP_ERR_NOT_FOUND)
         {
@@ -384,8 +423,8 @@ std::string webserver_form_for_config(httpd_req_t *req, ConfigWrapper<std::strin
                            "<input type=\"text\" name=\"{}\" value=\"{}\" />"
                            "<button type=\"submit\">Save</button>"
                        "</form>",
-                       htmlentities(config.nvsKey()),
-                       htmlentities(config.value()));
+                       esphttpdutils::htmlentities(config.nvsKey()),
+                       esphttpdutils::htmlentities(config.value()));
 
     return str;
 }
@@ -397,10 +436,10 @@ std::string webserver_form_for_config(httpd_req_t *req, ConfigWrapper<gpio_num_t
 
     {
         char valueBufEncoded[256];
-        if (const auto result = httpd_query_key_value(query.data(), config.nvsKey(), valueBufEncoded, 256); result == ESP_OK)
+        if (const auto result = httpd_query_key_value(query.data(), config.nvsKey(), valueBufEncoded, sizeof(valueBufEncoded)); result == ESP_OK)
         {
             char valueBuf[257];
-            espcpputils::urldecode(valueBuf, valueBufEncoded);
+            esphttpdutils::urldecode(valueBuf, valueBufEncoded);
 
             std::string_view value{valueBuf};
 
@@ -409,11 +448,11 @@ std::string webserver_form_for_config(httpd_req_t *req, ConfigWrapper<gpio_num_t
                 if (const auto result = config.writeToFlash(gpio_num_t(*parsed)))
                     str += "<span style=\"color: green;\">Successfully saved</span>";
                 else
-                    str += fmt::format("<span style=\"color: red;\">Error while saving: {}</span>", htmlentities(result.error()));
+                    str += fmt::format("<span style=\"color: red;\">Error while saving: {}</span>", esphttpdutils::htmlentities(result.error()));
             }
             else
             {
-                str += fmt::format("<span style=\"color: red;\">Error while saving: Invalid value \"{}\"</span>", htmlentities(value));
+                str += fmt::format("<span style=\"color: red;\">Error while saving: Invalid value \"{}\"</span>", esphttpdutils::htmlentities(value));
             }
         }
         else if (result != ESP_ERR_NOT_FOUND)
@@ -426,7 +465,7 @@ std::string webserver_form_for_config(httpd_req_t *req, ConfigWrapper<gpio_num_t
                        "<input type=\"number\" name=\"{}\" value=\"{}\" />"
                        "<button type=\"submit\">Save</button>"
                        "</form>",
-                       htmlentities(config.nvsKey()),
+                       esphttpdutils::htmlentities(config.nvsKey()),
                        config.value());
 
     return str;
@@ -439,10 +478,10 @@ std::string webserver_form_for_config(httpd_req_t *req, ConfigWrapper<espchrono:
 
     {
         char valueBufEncoded[256];
-        if (const auto result = httpd_query_key_value(query.data(), config.nvsKey(), valueBufEncoded, 256); result == ESP_OK)
+        if (const auto result = httpd_query_key_value(query.data(), config.nvsKey(), valueBufEncoded, sizeof(valueBufEncoded)); result == ESP_OK)
         {
             char valueBuf[257];
-            espcpputils::urldecode(valueBuf, valueBufEncoded);
+            esphttpdutils::urldecode(valueBuf, valueBufEncoded);
 
             std::string_view value{valueBuf};
 
@@ -451,11 +490,11 @@ std::string webserver_form_for_config(httpd_req_t *req, ConfigWrapper<espchrono:
                 if (const auto result = config.writeToFlash(espchrono::seconds32(*parsed)))
                     str += "<span style=\"color: green;\">Successfully saved</span>";
                 else
-                    str += fmt::format("<span style=\"color: red;\">Error while saving: {}</span>", htmlentities(result.error()));
+                    str += fmt::format("<span style=\"color: red;\">Error while saving: {}</span>", esphttpdutils::htmlentities(result.error()));
             }
             else
             {
-                str += fmt::format("<span style=\"color: red;\">Error while saving: Invalid value \"{}\"</span>", htmlentities(value));
+                str += fmt::format("<span style=\"color: red;\">Error while saving: Invalid value \"{}\"</span>", esphttpdutils::htmlentities(value));
             }
         }
         else if (result != ESP_ERR_NOT_FOUND)
@@ -468,7 +507,7 @@ std::string webserver_form_for_config(httpd_req_t *req, ConfigWrapper<espchrono:
                        "<input type=\"number\" name=\"{}\" value=\"{}\" />"
                        "<button type=\"submit\">Save</button>"
                        "</form>",
-                       htmlentities(config.nvsKey()),
+                       esphttpdutils::htmlentities(config.nvsKey()),
                        config.value().count());
 
     return str;
@@ -499,19 +538,19 @@ esp_err_t webserver_config_display(httpd_req_t *req, std::string &body, std::str
                                 "<td>{}</td>\n"
                                 "<td>{}</td>\n"
                             "</tr>\n",
-                            htmlentities(config.name()),
-                            //htmlentities(toString(config.value())),
+                            esphttpdutils::htmlentities(config.name()),
+                            //esphttpdutils::htmlentities(toString(config.value())),
                             webserver_form_for_config(req, config, query),
                             [&]() -> std::string {
                                 if (const auto result = config.readFromFlash())
                                 {
                                     if (*result)
-                                        return htmlentities(toString(**result));
+                                        return esphttpdutils::htmlentities(toString(**result));
                                     else
                                         return "<span style=\"color: grey;\">not set</span>";
                                 }
                                 else
-                                    return fmt::format("<span style=\"color: red\">{}</span>", htmlentities(result.error()));
+                                    return fmt::format("<span style=\"color: red\">{}</span>", esphttpdutils::htmlentities(result.error()));
                             }());
     });
 
@@ -521,12 +560,22 @@ esp_err_t webserver_config_display(httpd_req_t *req, std::string &body, std::str
     return ESP_OK;
 }
 
+esp_err_t webserver_otaform_display(httpd_req_t *req, std::string &body)
+{
+    body += "<form action=\"/ota\">\n"
+                "<label>OTA url: <input type=\"url\" name=\"url\" required /></label>\n"
+                "<button type=\"submit\">Start OTA</button>\n"
+            "</form>\n";
+    return ESP_OK;
+}
+
 esp_err_t webserver_on_handler(httpd_req_t *req)
 {
     if (!config::enable_lamp.value())
     {
-        ESP_LOGW(TAG, "lamp support not enabled!");
-        CALL_AND_EXIT(httpd_resp_send_err, req, HTTPD_400_BAD_REQUEST, "lamp support not enabled!")
+        constexpr const char *msg = "lamp support not enabled!";
+        ESP_LOGW(TAG, "%s", msg);
+        CALL_AND_EXIT(webserver_resp_send_err, req, HTTPD_400_BAD_REQUEST, "text/plain", msg)
     }
 
     const bool state = (lampState = true);
@@ -535,17 +584,16 @@ esp_err_t webserver_on_handler(httpd_req_t *req)
     if (mqttConnected)
         mqttVerbosePub(config::topic_lamp_status.value(), state ? "ON" : "OFF", 0, 1);
 
-    std::string_view body{"ON called..."};
-    CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
-    CALL_AND_EXIT(httpd_resp_send, req, body.data(), body.size())
+    CALL_AND_EXIT(webserver_resp_send_succ, req, "text/plain", "ON called...")
 }
 
 esp_err_t webserver_off_handler(httpd_req_t *req)
 {
     if (!config::enable_lamp.value())
     {
-        ESP_LOGW(TAG, "lamp support not enabled!");
-        CALL_AND_EXIT(httpd_resp_send_err, req, HTTPD_400_BAD_REQUEST, "lamp support not enabled!")
+        constexpr const char *msg = "lamp support not enabled!";
+        ESP_LOGW(TAG, "%s", msg);
+        CALL_AND_EXIT(webserver_resp_send_err, req, HTTPD_400_BAD_REQUEST, "text/plain", msg)
     }
 
     const bool state = (lampState = false);
@@ -554,17 +602,16 @@ esp_err_t webserver_off_handler(httpd_req_t *req)
     if (mqttConnected)
         mqttVerbosePub(config::topic_lamp_status.value(), state ? "ON" : "OFF", 0, 1);
 
-    std::string_view body{"OFF called..."};
-    CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
-    CALL_AND_EXIT(httpd_resp_send, req, body.data(), body.size())
+    CALL_AND_EXIT(webserver_resp_send_succ, req, "text/plain", "OFF called...")
 }
 
 esp_err_t webserver_toggle_handler(httpd_req_t *req)
 {
     if (!config::enable_lamp.value())
     {
-        ESP_LOGW(TAG, "lamp support not enabled!");
-        CALL_AND_EXIT(httpd_resp_send_err, req, HTTPD_400_BAD_REQUEST, "lamp support not enabled!")
+        constexpr const char *msg = "lamp support not enabled!";
+        ESP_LOGW(TAG, "%s", msg);
+        CALL_AND_EXIT(webserver_resp_send_err, req, HTTPD_400_BAD_REQUEST, "text/plain", msg)
     }
 
     const bool state = (lampState = !lampState);
@@ -573,18 +620,50 @@ esp_err_t webserver_toggle_handler(httpd_req_t *req)
     if (mqttConnected)
         mqttVerbosePub(config::topic_lamp_status.value(), state ? "ON" : "OFF", 0, 1);
 
-    std::string_view body{"TOGGLE called..."};
-    CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
-    CALL_AND_EXIT(httpd_resp_send, req, body.data(), body.size())
+    CALL_AND_EXIT(webserver_resp_send_succ, req, "text/plain", "TOGGLE called...")
 }
 
 esp_err_t webserver_reboot_handler(httpd_req_t *req)
 {
     shouldReboot = true;
 
-    std::string_view body{"REBOOT called..."};
-    CALL_AND_EXIT_ON_ERROR(httpd_resp_set_type, req, "text/html")
-    CALL_AND_EXIT(httpd_resp_send, req, body.data(), body.size())
+    CALL_AND_EXIT(webserver_resp_send_succ, req, "text/plain", "REBOOT called...")
+}
+
+esp_err_t webserver_ota_handler(httpd_req_t *req)
+{
+    std::string query;
+
+    if (const size_t queryLength = httpd_req_get_url_query_len(req))
+    {
+        query.resize(queryLength);
+        CALL_AND_EXIT_ON_ERROR(httpd_req_get_url_query_str, req, query.data(), query.size() + 1)
+    }
+
+    char urlBufEncoded[256];
+    if (const auto result = httpd_query_key_value(query.data(), "url", urlBufEncoded, sizeof(urlBufEncoded)); result == ESP_ERR_NOT_FOUND)
+    {
+        CALL_AND_EXIT(webserver_resp_send_err, req, HTTPD_400_BAD_REQUEST, "text/plain", "url parameter missing")
+    }
+    else if (result != ESP_OK)
+    {
+        const auto msg = fmt::format("httpd_query_key_value() {} failed with {}", "url", esp_err_to_name(result));
+        ESP_LOGE(TAG, "%.*s", msg.size(), msg.data());
+        CALL_AND_EXIT(webserver_resp_send_err, req, HTTPD_400_BAD_REQUEST, "text/plain", msg)
+    }
+
+    char urlBuf[257];
+    esphttpdutils::urldecode(urlBuf, urlBufEncoded);
+
+    std::string_view url{urlBuf};
+
+    if (const auto result = triggerOta(url); !result)
+    {
+        ESP_LOGE(TAG, "%.*s", result.error().size(), result.error().data());
+        CALL_AND_EXIT(webserver_resp_send_err, req, HTTPD_400_BAD_REQUEST, "text/plain", result.error())
+    }
+
+    CALL_AND_EXIT(webserver_resp_send_succ, req, "text/plain", "OTA called...")
 }
 } // namespace
 } // namespace deckenlampe
