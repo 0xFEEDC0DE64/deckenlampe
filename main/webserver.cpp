@@ -153,7 +153,7 @@ esp_err_t webserver_root_handler(httpd_req_t *req)
     if (const auto result = webserver_otaform_display(req, body); result != ESP_OK)
         return result;
 
-    CALL_AND_EXIT(webserver_resp_send_succ, req, "text/html", body)
+    CALL_AND_EXIT(webserver_resp_send, req, esphttpdutils::ResponseStatus::Ok, "text/html", body)
 }
 
 esp_err_t webserver_otainfo_display(httpd_req_t *req, std::string &body)
@@ -244,7 +244,7 @@ esp_err_t webserver_wifi_display(httpd_req_t *req, std::string &body)
     {
         const auto staStatus = wifi_stack::get_sta_status();
         body += fmt::format("<tr><th>STA status</th><td>{}</td></tr>\n", wifi_stack::toString(staStatus));
-        if (staStatus == wifi_stack::WiFiStaStatus::WL_CONNECTED)
+        if (staStatus == wifi_stack::WiFiStaStatus::CONNECTED)
         {
             if (const auto result = wifi_stack::get_sta_ap_info(); result)
             {
@@ -575,7 +575,7 @@ esp_err_t webserver_on_handler(httpd_req_t *req)
     {
         constexpr const char *msg = "lamp support not enabled!";
         ESP_LOGW(TAG, "%s", msg);
-        CALL_AND_EXIT(webserver_resp_send_err, req, HTTPD_400_BAD_REQUEST, "text/plain", msg)
+        CALL_AND_EXIT(webserver_resp_send, req, esphttpdutils::ResponseStatus::BadRequest, "text/plain", msg)
     }
 
     const bool state = (lampState = true);
@@ -584,7 +584,7 @@ esp_err_t webserver_on_handler(httpd_req_t *req)
     if (mqttConnected)
         mqttVerbosePub(config::topic_lamp_status.value(), state ? "ON" : "OFF", 0, 1);
 
-    CALL_AND_EXIT(webserver_resp_send_succ, req, "text/plain", "ON called...")
+    CALL_AND_EXIT(webserver_resp_send, req, esphttpdutils::ResponseStatus::Ok, "text/plain", "ON called...")
 }
 
 esp_err_t webserver_off_handler(httpd_req_t *req)
@@ -593,7 +593,7 @@ esp_err_t webserver_off_handler(httpd_req_t *req)
     {
         constexpr const char *msg = "lamp support not enabled!";
         ESP_LOGW(TAG, "%s", msg);
-        CALL_AND_EXIT(webserver_resp_send_err, req, HTTPD_400_BAD_REQUEST, "text/plain", msg)
+        CALL_AND_EXIT(webserver_resp_send, req, esphttpdutils::ResponseStatus::BadRequest, "text/plain", msg)
     }
 
     const bool state = (lampState = false);
@@ -602,7 +602,7 @@ esp_err_t webserver_off_handler(httpd_req_t *req)
     if (mqttConnected)
         mqttVerbosePub(config::topic_lamp_status.value(), state ? "ON" : "OFF", 0, 1);
 
-    CALL_AND_EXIT(webserver_resp_send_succ, req, "text/plain", "OFF called...")
+    CALL_AND_EXIT(webserver_resp_send, req, esphttpdutils::ResponseStatus::Ok, "text/plain", "OFF called...")
 }
 
 esp_err_t webserver_toggle_handler(httpd_req_t *req)
@@ -611,7 +611,7 @@ esp_err_t webserver_toggle_handler(httpd_req_t *req)
     {
         constexpr const char *msg = "lamp support not enabled!";
         ESP_LOGW(TAG, "%s", msg);
-        CALL_AND_EXIT(webserver_resp_send_err, req, HTTPD_400_BAD_REQUEST, "text/plain", msg)
+        CALL_AND_EXIT(webserver_resp_send, req, esphttpdutils::ResponseStatus::BadRequest, "text/plain", msg)
     }
 
     const bool state = (lampState = !lampState);
@@ -620,14 +620,14 @@ esp_err_t webserver_toggle_handler(httpd_req_t *req)
     if (mqttConnected)
         mqttVerbosePub(config::topic_lamp_status.value(), state ? "ON" : "OFF", 0, 1);
 
-    CALL_AND_EXIT(webserver_resp_send_succ, req, "text/plain", "TOGGLE called...")
+    CALL_AND_EXIT(webserver_resp_send, req, esphttpdutils::ResponseStatus::Ok, "text/plain", "TOGGLE called...")
 }
 
 esp_err_t webserver_reboot_handler(httpd_req_t *req)
 {
     shouldReboot = true;
 
-    CALL_AND_EXIT(webserver_resp_send_succ, req, "text/plain", "REBOOT called...")
+    CALL_AND_EXIT(webserver_resp_send, req, esphttpdutils::ResponseStatus::Ok, "text/plain", "REBOOT called...")
 }
 
 esp_err_t webserver_ota_handler(httpd_req_t *req)
@@ -643,13 +643,13 @@ esp_err_t webserver_ota_handler(httpd_req_t *req)
     char urlBufEncoded[256];
     if (const auto result = httpd_query_key_value(query.data(), "url", urlBufEncoded, sizeof(urlBufEncoded)); result == ESP_ERR_NOT_FOUND)
     {
-        CALL_AND_EXIT(webserver_resp_send_err, req, HTTPD_400_BAD_REQUEST, "text/plain", "url parameter missing")
+        CALL_AND_EXIT(webserver_resp_send, req, esphttpdutils::ResponseStatus::BadRequest, "text/plain", "url parameter missing")
     }
     else if (result != ESP_OK)
     {
         const auto msg = fmt::format("httpd_query_key_value() {} failed with {}", "url", esp_err_to_name(result));
         ESP_LOGE(TAG, "%.*s", msg.size(), msg.data());
-        CALL_AND_EXIT(webserver_resp_send_err, req, HTTPD_400_BAD_REQUEST, "text/plain", msg)
+        CALL_AND_EXIT(webserver_resp_send, req, esphttpdutils::ResponseStatus::BadRequest, "text/plain", msg)
     }
 
     char urlBuf[257];
@@ -660,10 +660,10 @@ esp_err_t webserver_ota_handler(httpd_req_t *req)
     if (const auto result = triggerOta(url); !result)
     {
         ESP_LOGE(TAG, "%.*s", result.error().size(), result.error().data());
-        CALL_AND_EXIT(webserver_resp_send_err, req, HTTPD_400_BAD_REQUEST, "text/plain", result.error())
+        CALL_AND_EXIT(webserver_resp_send, req, esphttpdutils::ResponseStatus::BadRequest, "text/plain", result.error())
     }
 
-    CALL_AND_EXIT(webserver_resp_send_succ, req, "text/plain", "OTA called...")
+    CALL_AND_EXIT(webserver_resp_send, req, esphttpdutils::ResponseStatus::Ok, "text/plain", "OTA called...")
 }
 } // namespace
 } // namespace deckenlampe
