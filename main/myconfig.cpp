@@ -63,6 +63,16 @@ ConfigWrapper<std::string> topic_bmp085_pressure{"topic_bmp085_pressure", "tpcbm
 ConfigWrapper<std::string> topic_bmp085_temperature{"topic_bmp085_temperature", "tpcbmp085temper", "dahoam/wohnzimmer/bmp085_1/temperature"};
 ConfigWrapper<std::string> topic_bmp085_altitude{"topic_bmp085_altitude", "tpcbmp085altitu", "dahoam/wohnzimmer/bmp085_1/altitude"};
 
+ConfigWrapper<bool> enable_pms{"enable_pms", "enable_pms", false};
+ConfigWrapper<gpio_num_t> pins_pms_rx{"pins_pms_rx", "pins_pms_rx", GPIO_NUM_25};
+ConfigWrapper<gpio_num_t> pins_pms_tx{"pins_pms_tx", "pins_pms_tx", GPIO_NUM_26};
+ConfigWrapper<std::string> topic_pms_st_1_0{"topic_pms_st_1_0", "tpcpmsst1_0", "dahoam/wohnzimmer/pms/st/1_0"};
+ConfigWrapper<std::string> topic_pms_st_2_5{"topic_pms_st_2_5", "tpcpmsst2_5", "dahoam/wohnzimmer/pms/st/2_5"};
+ConfigWrapper<std::string> topic_pms_st_10_0{"topic_pms_st_10_0", "tpcpmsst10_0", "dahoam/wohnzimmer/pms/st/10_0"};
+ConfigWrapper<std::string> topic_pms_ae_1_0{"topic_pms_ae_1_0", "tpcpmsae1_0", "dahoam/wohnzimmer/pms/ae/1_0"};
+ConfigWrapper<std::string> topic_pms_ae_2_5{"topic_pms_ae_2_5", "tpcpmsae2_5", "dahoam/wohnzimmer/pms/ae/2_5"};
+ConfigWrapper<std::string> topic_pms_ae_10_0{"topic_pms_ae_10_0", "tpcpmsae10_0", "dahoam/wohnzimmer/pms/ae/10_0"};
+
 ConfigWrapper<espchrono::seconds32> availableTimeoutTime{"availableTimeoutTime", "availTimeouTime", 1min};
 ConfigWrapper<espchrono::seconds32> valueUpdateInterval{"valueUpdateInterval", "valUpdaInterval", 15s};
 } // namespace config

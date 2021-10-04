@@ -6,6 +6,7 @@ set(headers
     feature_bmp.h
     feature_dht.h
     feature_lamp.h
+    feature_pms.h
     feature_switch.h
     feature_tsl.h
     myble.h
@@ -23,6 +24,7 @@ set(sources
     feature_bmp.cpp
     feature_dht.cpp
     feature_lamp.cpp
+    feature_pms.cpp
     feature_switch.cpp
     feature_tsl.cpp
     main.cpp
@@ -38,8 +40,8 @@ set(sources
 set(dependencies
     freertos nvs_flash esp_http_server esp_https_ota mdns app_update esp_system mqtt
     arduino-esp32 date esp-nimble-cpp expected fmt
-    Adafruit_BMP085_Unified Adafruit_TSL2561 DHT-sensor-library
-    cpputils espasyncota espchrono espcpputils esphttpdutils espwifistack
+    airgradient Adafruit_BMP085_Unified Adafruit_TSL2561 DHT-sensor-library
+    cpputils espasyncota espchrono espconfiglib espcpputils esphttpdutils espwifistack
 )
 
 idf_component_register(

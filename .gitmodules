@@ -46,3 +46,9 @@
 [submodule "components/esphttpdutils"]
 	path = components/esphttpdutils
 	url = git@github.com:0xFEEDC0DE64/esphttpdutils.git
+[submodule "components/espconfiglib"]
+	path = components/espconfiglib
+	url = git@github.com:0xFEEDC0DE64/espconfiglib.git
+[submodule "components/ArduinoJson"]
+	path = components/ArduinoJson
+	url = git@github.com:0xFEEDC0DE64/ArduinoJson.git

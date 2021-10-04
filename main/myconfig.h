@@ -68,6 +68,16 @@ extern ConfigWrapper<std::string> topic_bmp085_pressure;
 extern ConfigWrapper<std::string> topic_bmp085_temperature;
 extern ConfigWrapper<std::string> topic_bmp085_altitude;
 
+extern ConfigWrapper<bool> enable_pms;
+extern ConfigWrapper<gpio_num_t> pins_pms_rx;
+extern ConfigWrapper<gpio_num_t> pins_pms_tx;
+extern ConfigWrapper<std::string> topic_pms_st_1_0;
+extern ConfigWrapper<std::string> topic_pms_st_2_5;
+extern ConfigWrapper<std::string> topic_pms_st_10_0;
+extern ConfigWrapper<std::string> topic_pms_ae_1_0;
+extern ConfigWrapper<std::string> topic_pms_ae_2_5;
+extern ConfigWrapper<std::string> topic_pms_ae_10_0;
+
 extern ConfigWrapper<espchrono::seconds32> availableTimeoutTime;
 extern ConfigWrapper<espchrono::seconds32> valueUpdateInterval;
 
@@ -113,6 +123,15 @@ void foreachConfig(T &&callback)
     callback(topic_bmp085_pressure);
     callback(topic_bmp085_temperature);
     callback(topic_bmp085_altitude);
+    callback(enable_pms);
+    callback(pins_pms_rx);
+    callback(pins_pms_tx);
+    callback(topic_pms_st_1_0);
+    callback(topic_pms_st_2_5);
+    callback(topic_pms_st_10_0);
+    callback(topic_pms_ae_1_0);
+    callback(topic_pms_ae_2_5);
+    callback(topic_pms_ae_10_0);
     callback(availableTimeoutTime);
     callback(valueUpdateInterval);
 }

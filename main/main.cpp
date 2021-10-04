@@ -29,6 +29,7 @@
 #include "feature_dht.h"
 #include "feature_tsl.h"
 #include "feature_bmp.h"
+#include "feature_pms.h"
 #include "espchrono.h"
 
 using namespace std::chrono_literals;
@@ -108,6 +109,8 @@ extern "C" void app_main()
 
     init_bmp();
 
+    init_pms();
+
     while (true)
     {
 #if defined(CONFIG_ESP_TASK_WDT_PANIC) || defined(CONFIG_ESP_TASK_WDT)
@@ -143,6 +146,9 @@ extern "C" void app_main()
         vPortYield();
 
         update_bmp();
+        vPortYield();
+
+        update_pms();
         vPortYield();
 
         update_switch();
